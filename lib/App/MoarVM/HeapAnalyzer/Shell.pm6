@@ -99,6 +99,18 @@ method interactive(IO::Path $file) {
                         [ 'Object Id' => Any, 'Description' => Any ];
                 }
             }
+            when /^ path \s+ (\d+) \s* $/ {
+                my $idx = $0.Int;
+                with-current-snapshot -> $s {
+                    my @path = $s.path($idx);
+                    my @pieces = @path.shift();
+                    for @path -> $route, $target {
+                        @pieces.push("    --[ $route ]-->");
+                        @pieces.push($target)
+                    }
+                    say @pieces.join("\n") ~ "\n";
+                }
+            }
             when 'help' {
                 say help();
             }
@@ -177,6 +189,8 @@ sub help() {
         find [<n>]? <what> [type="..." | repr="..." | name="..."]
             Where <what> is objects, stables, or frames. By default, <n> is 15.
             Finds objects matching the given type or REPR, or frames by name.
+        path <objectid>
+            Shortest path from the root to <objectid> (find these with `find`)
     HELP
 }
 

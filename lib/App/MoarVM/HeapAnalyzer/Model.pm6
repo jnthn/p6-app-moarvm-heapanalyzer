@@ -96,6 +96,8 @@ my enum CollectableKind is export <<
     CStackRoots ThreadRoots Root
 >>;
 
+my enum RefKind is export << :Unknown(0) Index String >>;
+
 # Holds data about a snapshot and provides various query operations on it.
 my class Snapshot {
     has int8 @!col-kinds;
@@ -104,9 +106,6 @@ my class Snapshot {
     has int @!col-unmanaged-size;
     has int @!col-refs-start;
     has int32 @!col-num-refs;
-    has int8 @!ref-kinds;
-    has int @!ref-indexes;
-    has int @!ref-tos;
 
     has @!strings;
     has $!types;
@@ -118,11 +117,19 @@ my class Snapshot {
     has $.num-frames;
     has $.total-size;
 
+    has int8 @!ref-kinds;
+    has int @!ref-indexes;
+    has int @!ref-tos;
+
+    has @!bfs-distances;
+    has @!bfs-preds;
+    has @!bfs-pred-refs;
+
     submethod BUILD(
         :@col-kinds, :@col-desc-indexes, :@col-size, :@col-unmanaged-size,
         :@col-refs-start, :@col-num-refs, :@strings, :$!types, :$!static-frames,
         :$!num-objects, :$!num-type-objects, :$!num-stables, :$!num-frames,
-        :$!total-size
+        :$!total-size, :@ref-kinds, :@ref-indexes, :@ref-tos
     ) {
         @!col-kinds := @col-kinds;
         @!col-desc-indexes := @col-desc-indexes;
@@ -131,6 +138,9 @@ my class Snapshot {
         @!col-refs-start := @col-refs-start;
         @!col-num-refs := @col-num-refs;
         @!strings := @strings;
+        @!ref-kinds := @ref-kinds;
+        @!ref-indexes := @ref-indexes;
+        @!ref-tos := @ref-tos;
     }
 
     method top-by-count(int $n, int $kind) {
@@ -200,6 +210,93 @@ my class Snapshot {
             }
         }
         @results
+    }
+
+    method path($idx) {
+        unless $idx ~~ ^@!col-kinds.elems {
+            die "No such collectable index $idx";
+        }
+        self!ensure-bfs();
+
+        my @path;
+        my int $cur-col = $idx;
+        until $cur-col == -1 {
+            @path.unshift: do given @!col-kinds[$cur-col] {
+                when Object {
+                    $!types.type-name(@!col-desc-indexes[$cur-col]) ~ ' (Object)'
+                }
+                when TypeObject {
+                    $!types.type-name(@!col-desc-indexes[$cur-col]) ~ ' (Type Object)'
+                }
+                when STable {
+                    $!types.type-name(@!col-desc-indexes[$cur-col]) ~ ' (STable)'
+                }
+                when Frame {
+                    $!static-frames.summary(@!col-desc-indexes[$cur-col]) ~ ' (Frame)'
+                }
+                when PermRoots { 'Permanent roots' }
+                when InstanceRoots { 'VM Instance Roots' }
+                when CStackRoots { 'C Stack Roots' }
+                when ThreadRoots { 'Thread Roots' }
+                when Root { 'Root' }
+                default { '???' }
+            }
+
+            my int $pred-ref = @!bfs-pred-refs[$cur-col];
+            if $pred-ref >= 0 {
+                @path.unshift: do given @!ref-kinds[$pred-ref] {
+                    when String {
+                        @!strings[@!ref-indexes[$pred-ref]]
+                    }
+                    when Index {
+                        "Index @!ref-indexes[$pred-ref]"
+                    }
+                    default { 'Unknown' }
+                }
+            }
+
+            $cur-col = @!bfs-preds[$cur-col];
+        }
+
+        @path
+    }
+
+    method !ensure-bfs() {
+        return if @!bfs-distances;
+
+        my int32 @distances;
+        my int @pred;
+        my int @pred-ref;
+        my int8 @color; # 0 = white, 1 = grey, 2 = black
+
+        @color[0] = 1;
+        @distances[0] = 0;
+        @pred[0] = -1;
+        @pred-ref[0] = -1;
+
+        my int @queue;
+        @queue.push(0);
+        while @queue {
+            my int $cur-col = @queue.shift;
+            my int $num-refs = @!col-num-refs[$cur-col];
+            my int $refs-start = @!col-refs-start[$cur-col];
+            loop (my int $i = 0; $i < $num-refs; $i++) {
+                my int $ref-idx = $refs-start + $i;
+                my int $to = @!ref-tos[$ref-idx];
+                if @color[$to] == 0 {
+                    @color[$to] = 1;
+                    @distances[$to] = @distances[$cur-col] + 1;
+                    @pred[$to] = $cur-col;
+                    @pred-ref[$to] = $ref-idx;
+                    @queue.push($to);
+                }
+            }
+            @color[$cur-col] = 2;
+        }
+
+        @!bfs-distances := @distances;
+        @!bfs-preds := @pred;
+        @!bfs-pred-refs := @pred-ref;
     }
 }
 
