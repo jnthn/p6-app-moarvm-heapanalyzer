@@ -30,6 +30,28 @@ my class Types {
     method type-name(int $idx) {
         @!strings[@!type-name-indexes[$idx]]
     }
+
+    method all-with-type($name) {
+        my int @found;
+        with @!strings.first($name, :k) -> int $goal {
+            my int $num-types = @!type-name-indexes.elems;
+            loop (my int $i = 0; $i < $num-types; $i++) {
+                @found.push($i) if @!type-name-indexes[$i] == $goal;
+            }
+        }
+        @found
+    }
+
+    method all-with-repr($name) {
+        my int @found;
+        with @!strings.first($name, :k) -> int $goal {
+            my int $num-types = @!repr-name-indexes.elems;
+            loop (my int $i = 0; $i < $num-types; $i++) {
+                @found.push($i) if @!repr-name-indexes[$i] == $goal;
+            }
+        }
+        @found
+    }
 }
 
 # Holds and provides access to the static frames data set.
@@ -54,6 +76,17 @@ my class StaticFrames {
         my $path = @!strings[@!file-indexes[$index]];
         my $file = $path.split(/<[\\/]>/).tail;
         "$name ($file:$line)"
+    }
+
+    method all-with-name($name) {
+        my int @found;
+        with @!strings.first($name, :k) -> int $goal {
+            my int $num-sf = @!name-indexes.elems;
+            loop (my int $i = 0; $i < $num-sf; $i++) {
+                @found.push($i) if @!name-indexes[$i] == $goal;
+            }
+        }
+        @found
     }
 }
 
@@ -134,6 +167,39 @@ my class Snapshot {
                 [$!types.type-name(.key.Int), .value]
             })
         }
+    }
+
+    method find(int $n, int $kind, $cond, $value) {
+        my int8 @matching;
+        given $cond {
+            when 'type' {
+                @matching[$_] = 1 for $!types.all-with-type($value);
+            }
+            when 'repr' {
+                @matching[$_] = 1 for $!types.all-with-repr($value);
+            }
+            when 'name' {
+                @matching[$_] = 1 for $!static-frames.all-with-name($value);
+            }
+            default {
+                die "Sorry, don't understand search condition $cond";
+            }
+        }
+
+        my @results;
+        my int $num-cols = @!col-kinds.elems;
+        loop (my int $i = 0; $i < $num-cols; $i++) {
+            if @!col-kinds[$i] == $kind && @matching[@!col-desc-indexes[$i]] {
+                @results.push: [
+                    $i,
+                    $kind == CollectableKind::Frame
+                        ?? $!static-frames.summary(@!col-desc-indexes[$i])
+                        !! $!types.type-name(@!col-desc-indexes[$i])
+                ];
+                last if @results == $n;
+            }
+        }
+        @results
     }
 }
 

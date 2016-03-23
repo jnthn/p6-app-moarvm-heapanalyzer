@@ -45,7 +45,12 @@ method interactive(IO::Path $file) {
             }
             code($!model.get-snapshot($current-snapshot))
         }
-        
+
+        my constant %kind-map = hash
+            objects => CollectableKind::Object,
+            stables => CollectableKind::STable,
+            frames  => CollectableKind::Frame;
+
         given prompt "> " {
             when /^ \s* snapshot \s+ (\d+) \s* $/ {
                 $current-snapshot = $0.Int;
@@ -76,15 +81,22 @@ method interactive(IO::Path $file) {
                 my $what = ~$1;
                 my $by = $2 ?? ~$2 !! 'size';
                 with-current-snapshot -> $s {
-                    my constant %kind-map = hash
-                        objects => CollectableKind::Object,
-                        stables => CollectableKind::STable,
-                        frames  => CollectableKind::Frame;
                     say table
                         $s."top-by-$by"($n, %kind-map{$what}),
                         $by eq 'count'
-                            ?? [ Name => *, Count => &mag ]
-                            !! [ Name => *, 'Total Bytes' => &size ]
+                            ?? [ Name => Any, Count => &mag ]
+                            !! [ Name => Any, 'Total Bytes' => &size ]
+                }
+            }
+            when /^ find \s+ [(\d+)\s+]? (< objects stables frames >) \s+
+                    (< type repr name >) \s* '=' \s* \" ~ \" (<-["]>+) \s*
+                    $ / {
+                my $n = $0 ?? $0.Int !! 15;
+                my ($what, $cond, $value) = ~$1, ~$2, ~$3;
+                with-current-snapshot -> $s {
+                    say table
+                        $s.find($n, %kind-map{$what}, $cond, $value),
+                        [ 'Object Id' => Any, 'Description' => Any ];
                 }
             }
             when 'help' {
@@ -117,9 +129,9 @@ sub table(@data, @columns) {
     my @formatters = @columns>>.value;
     my @formatted-data = @data.map(-> @row {
         list @row.pairs.map({
-            @formatters[.key] ~~ Whatever
-                ?? .value
-                !! @formatters[.key](.value)
+            @formatters[.key] ~~ Callable
+                ?? @formatters[.key](.value)
+                !! .value
         })
     });
 
@@ -159,9 +171,12 @@ sub help() {
     On the currently selected snapshot:
         summary
             Basic summary information
-        top [<n>]? <what> [by size | by count]
+        top [<n>]? <what> [by size | by count]?
             Where <what> is objects, stables, or frames. By default, <n> is 15
             and they are ordered by their total memory size.
+        find [<n>]? <what> [type="..." | repr="..." | name="..."]
+            Where <what> is objects, stables, or frames. By default, <n> is 15.
+            Finds objects matching the given type or REPR, or frames by name.
     HELP
 }
 
