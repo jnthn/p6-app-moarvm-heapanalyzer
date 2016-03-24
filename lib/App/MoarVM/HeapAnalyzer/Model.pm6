@@ -216,6 +216,31 @@ my class Snapshot {
         @results
     }
 
+    method describe-col($cur-col) {
+        given @!col-kinds[$cur-col] {
+            when Object {
+                $!types.type-name(@!col-desc-indexes[$cur-col]) ~ ' (Object)'
+            }
+            when TypeObject {
+                $!types.type-name(@!col-desc-indexes[$cur-col]) ~ ' (Type Object)'
+            }
+            when STable {
+                $!types.type-name(@!col-desc-indexes[$cur-col]) ~ ' (STable)'
+            }
+            when Frame {
+                $!static-frames.summary(@!col-desc-indexes[$cur-col]) ~ ' (Frame)'
+            }
+            when PermRoots { 'Permanent roots' }
+            when InstanceRoots { 'VM Instance Roots' }
+            when CStackRoots { 'C Stack Roots' }
+            when ThreadRoots { 'Thread Roots' }
+            when Root { 'Root' }
+            when InterGenerationalRoots { 'Inter-generational Roots' }
+            when CallStackRoots { 'Call Stack Roots' }
+            default { '???' }
+        }
+    }
+
     method path($idx) {
         unless $idx ~~ ^@!col-kinds.elems {
             die "No such collectable index $idx";
@@ -225,28 +250,7 @@ my class Snapshot {
         my @path;
         my int $cur-col = $idx;
         until $cur-col == -1 {
-            @path.unshift: do given @!col-kinds[$cur-col] {
-                when Object {
-                    $!types.type-name(@!col-desc-indexes[$cur-col]) ~ ' (Object)'
-                }
-                when TypeObject {
-                    $!types.type-name(@!col-desc-indexes[$cur-col]) ~ ' (Type Object)'
-                }
-                when STable {
-                    $!types.type-name(@!col-desc-indexes[$cur-col]) ~ ' (STable)'
-                }
-                when Frame {
-                    $!static-frames.summary(@!col-desc-indexes[$cur-col]) ~ ' (Frame)'
-                }
-                when PermRoots { 'Permanent roots' }
-                when InstanceRoots { 'VM Instance Roots' }
-                when CStackRoots { 'C Stack Roots' }
-                when ThreadRoots { 'Thread Roots' }
-                when Root { 'Root' }
-                when InterGenerationalRoots { 'Inter-generational Roots' }
-                when CallStackRoots { 'Call Stack Roots' }
-                default { '???' }
-            }
+            @path.unshift: self.describe-col($cur-col);
 
             my int $pred-ref = @!bfs-pred-refs[$cur-col];
             if $pred-ref >= 0 {
