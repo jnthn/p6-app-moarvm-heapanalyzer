@@ -253,7 +253,7 @@ my class Snapshot {
         my @path;
         my int $cur-col = $idx;
         until $cur-col == -1 {
-            @path.unshift: self.describe-col($cur-col);
+            @path.unshift: self.describe-col($cur-col) ~ " ($cur-col)";
 
             my int $pred-ref = @!bfs-pred-refs[$cur-col];
             if $pred-ref >= 0 {
