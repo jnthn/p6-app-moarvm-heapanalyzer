@@ -271,6 +271,34 @@ my class Snapshot {
         @path
     }
 
+    method details($idx) {
+        unless $idx ~~ ^@!col-kinds.elems {
+            die "No such collectable index $idx";
+        }
+        my @parts;
+
+        @parts.push: self.describe-col($idx);
+
+        my int $num-refs = @!col-num-refs[$idx];
+        my int $refs-start = @!col-refs-start[$idx];
+        loop (my int $i = 0; $i < $num-refs; $i++) {
+            my int $ref-idx = $refs-start + $i;
+            my int $to = @!ref-tos[$ref-idx];
+
+            @parts.push: do given @!ref-kinds[$ref-idx] {
+                when String {
+                    @!strings[@!ref-indexes[$ref-idx]]
+                }
+                when Index {
+                    "Index @!ref-indexes[$ref-idx]"
+                }
+                default { 'Unknown' }
+            }
+            @parts.push: self.describe-col($to) ~ " ($to)";
+        }
+        @parts;
+    }
+
     method !ensure-bfs() {
         return if @!bfs-distances;
 
