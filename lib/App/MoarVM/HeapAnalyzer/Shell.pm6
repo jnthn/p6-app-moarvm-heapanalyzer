@@ -52,6 +52,9 @@ method interactive(IO::Path $file) {
             frames  => CollectableKind::Frame;
 
         given prompt "> " {
+            when Nil {
+                exit 0
+            }
             when /^ \s* snapshot \s+ (\d+) \s* $/ {
                 $current-snapshot = $0.Int;
                 if $!model.prepare-snapshot($current-snapshot) == SnapshotStatus::Preparing {
