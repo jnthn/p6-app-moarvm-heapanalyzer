@@ -217,6 +217,9 @@ my class Snapshot {
     }
 
     method describe-col($cur-col) {
+        unless $cur-col ~~ ^@!col-kinds.elems {
+            die "No such collectable index $cur-col";
+        }
         given @!col-kinds[$cur-col] {
             when Object {
                 $!types.type-name(@!col-desc-indexes[$cur-col]) ~ ' (Object)'
