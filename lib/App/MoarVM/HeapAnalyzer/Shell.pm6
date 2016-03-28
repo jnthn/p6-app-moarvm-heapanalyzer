@@ -216,6 +216,9 @@ sub help() {
             items matching the given type or REPR, or frames by name.
         path <objectid>
             Shortest path from the root to <objectid> (find these with `find`)
+        show <objectid>
+            Shows more information about <objectid> as well as all outgoing
+            references.
     HELP
 }
 
