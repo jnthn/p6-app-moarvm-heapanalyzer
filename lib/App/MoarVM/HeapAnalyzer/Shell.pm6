@@ -100,6 +100,14 @@ method interactive(IO::Path $file) {
                         [ 'Object Id' => Any, 'Description' => Any ];
                 }
             }
+            when /^ count \s+ (< objects stables frames >) \s+
+                    (< type repr name >) \s* '=' \s* \" ~ \" (<-["]>+) \s*
+                    $ / {
+                my ($what, $cond, $value) = ~$0, ~$1, ~$2;
+                with-current-snapshot -> $s {
+                    say +$s.find(0xFFFFFFFF, %kind-map{$what}, $cond, $value);
+                }
+            }
             when /^ path \s+ (\d+) \s* $/ {
                 my $idx = $0.Int;
                 with-current-snapshot -> $s {
