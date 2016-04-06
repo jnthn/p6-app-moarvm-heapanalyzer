@@ -143,6 +143,10 @@ my class Snapshot {
         @!ref-tos := @ref-tos;
     }
 
+    method num-references() {
+        @!ref-kinds.elems
+    }
+
     method top-by-count(int $n, int $kind) {
         my %top;
         my int $num-cols = @!col-kinds.elems;

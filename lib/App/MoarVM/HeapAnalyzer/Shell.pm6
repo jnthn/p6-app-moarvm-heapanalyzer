@@ -70,6 +70,7 @@ method interactive(IO::Path $file) {
                         Total type objects:           &mag($s.num-type-objects)
                         Total STables (type tables):  &mag($s.num-stables)
                         Total frames:                 &mag($s.num-frames)
+                        Total references:             &mag($s.num-references)
                     SUMMARY
                 }
             }
