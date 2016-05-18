@@ -197,7 +197,10 @@ sub help() {
             and they are ordered by their total memory size.
         find [<n>]? <what> [type="..." | repr="..." | name="..."]
             Where <what> is objects, stables, or frames. By default, <n> is 15.
-            Finds objects matching the given type or REPR, or frames by name.
+            Finds items matching the given type or REPR, or frames by name.
+        count <what> [type="..." | repr="..." | name="..."]
+            Where <what> is objects, stables, or frames. Counts the number of
+            items matching the given type or REPR, or frames by name.
         path <objectid>
             Shortest path from the root to <objectid> (find these with `find`)
     HELP
