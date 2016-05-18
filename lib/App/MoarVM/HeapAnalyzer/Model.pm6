@@ -93,7 +93,7 @@ my class StaticFrames {
 # The various kinds of collectable.
 my enum CollectableKind is export <<
     :Object(1) TypeObject STable Frame PermRoots InstanceRoots
-    CStackRoots ThreadRoots Root InterGenerationalRoots
+    CStackRoots ThreadRoots Root InterGenerationalRoots CallStackRoots
 >>;
 
 my enum RefKind is export << :Unknown(0) Index String >>;
@@ -244,6 +244,7 @@ my class Snapshot {
                 when ThreadRoots { 'Thread Roots' }
                 when Root { 'Root' }
                 when InterGenerationalRoots { 'Inter-generational Roots' }
+                when CallStackRoots { 'Call Stack Roots' }
                 default { '???' }
             }
 
