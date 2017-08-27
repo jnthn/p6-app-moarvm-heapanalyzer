@@ -481,7 +481,6 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
         @!unparsed-snapshots = @snapshots;
     }
     elsif $!version == 2 {
-        say "yay, version 2!";
         my $fh = MyLittleBuffer.new(fh => $file.open(:r, :bin));
         constant index-entries = 4;
         $fh.seek(-8 * index-entries, SeekFromEnd);
@@ -492,7 +491,6 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
 
         sub fh-at($pos) {
             my $fh = MyLittleBuffer.new(fh => $file.open(:r, :bin, :buffer(4096)));
-            say "seeking to $pos";
             $fh.seek($pos, SeekFromBeginning);
             $fh
         }
@@ -519,10 +517,8 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
 }
 
 method !parse-strings-ver2($fh) {
-    say "reading strings at $fh.tell()";
     die "expected the strings header" if $fh.exactly(4).decode("utf8") ne "strs";
     my $stringcount = readSizedInt64($fh);
-    say "$stringcount strings";
     do for ^$stringcount {
         my $length = readSizedInt64($fh);
         $length ?? $fh.exactly($length).decode("utf8")
@@ -530,10 +526,8 @@ method !parse-strings-ver2($fh) {
     }
 }
 method !parse-types-ver2($fh) {
-    say "reading types at $fh.tell()";
     die "expected the types header" if $fh.exactly(4).decode("utf8") ne "type";
     my ($typecount, $size-per-type) = readSizedInt64($fh) xx 2;
-    say "{ $typecount * $size-per-type } bytes of types";
     my int @repr-name-indexes;
     my int @type-name-indexes;
     for ^$typecount {
@@ -544,10 +538,8 @@ method !parse-types-ver2($fh) {
     Types.new(:@repr-name-indexes, :@type-name-indexes, strings => await $!strings-promise);
 }
 method !parse-static-frames-ver2($fh) {
-    say "reading staticframes at $fh.tell()";
     die "expected the frames header" if $fh.exactly(4).decode("utf8") ne "fram";
     my ($staticframecount, $size-per-frame) = readSizedInt64($fh) xx 2;
-    say "{ $staticframecount * $size-per-frame } bytes of staticframes";
     my int @name-indexes;
     my int @cuid-indexes;
     my int32 @lines;
@@ -651,7 +643,6 @@ method !parse-snapshot($snapshot-task) {
             elsif $!version == 2 {
                 my $fh = MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
                 $fh.seek($snapshot-task[0], SeekFromBeginning);
-                say "parsing snapshot at $fh.tell()";
                 die "expected the collectables header" if $fh.exactly(4).decode("utf8") ne "coll";
                 my ($count, $size-per-collectable) = readSizedInt64($fh) xx 2;
                 do for ^$count {
@@ -711,7 +702,6 @@ method !parse-snapshot($snapshot-task) {
                 dd $snapshot-task;
                 my $fh = MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
                 $fh.seek($snapshot-task[1], SeekFromBeginning);
-                say "parsing references at $fh.tell()";
                 die "expected the references header" if $fh.exactly(4).decode("utf8") ne "refs";
                 my ($count, $size-per-reference) = readSizedInt64($fh) xx 2;
                 for ^$count {
