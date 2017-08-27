@@ -645,7 +645,7 @@ method !parse-snapshot($snapshot-task) {
         my @collectable-pieces = do {
             if $!version == 1 {
                 $snapshot-task<collectables>.split(";").map({
-                    my uint64 @pieces := .split(",").map(*.Int);
+                    my uint64 @pieces = .split(",").map(*.Int);
                 })
             }
             elsif $!version == 2 {
@@ -701,7 +701,7 @@ method !parse-snapshot($snapshot-task) {
         my @references-pieces = do {
             if $!version == 1 {
                 for $snapshot-task<collectables>.split(";") {
-                    my uint8 @pieces := .split(",").map(*.Int);
+                    my uint8 @pieces = .split(",").map(*.Int);
                     @ref-kinds.push(@pieces.shift);
                     @ref-indexes.push(@pieces.shift);
                     @ref-tos.push(@pieces.shift);
