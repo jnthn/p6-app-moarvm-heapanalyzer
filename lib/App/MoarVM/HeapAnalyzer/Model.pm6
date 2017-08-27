@@ -645,14 +645,32 @@ method !parse-snapshot($snapshot-task) {
                 $fh.seek($snapshot-task[0], SeekFromBeginning);
                 die "expected the collectables header" if $fh.exactly(4).decode("utf8") ne "coll";
                 my ($count, $size-per-collectable) = readSizedInt64($fh) xx 2;
-                do for ^$count {
-                    my uint64 @ = readSizedInt16($fh),
-                        readSizedInt32($fh),
-                        readSizedInt16($fh),
-                        readSizedInt64($fh),
-                        readSizedInt64($fh),
-                        readSizedInt32($fh);
-                }
+
+                my $startpos = $snapshot-task[0] + 4 + 16;
+                my $first-half-count = $count div 2;
+
+                my $second-fh = MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
+                $second-fh.seek($startpos + $first-half-count * $size-per-collectable, SeekFromBeginning);
+                await start {
+                        do for ^$first-half-count {
+                            my uint64 @ = readSizedInt16($fh),
+                                readSizedInt32($fh),
+                                readSizedInt16($fh),
+                                readSizedInt64($fh),
+                                readSizedInt64($fh),
+                                readSizedInt32($fh);
+                        }.Slip
+                    },
+                    start {
+                        do for ^($count - $first-half-count) {
+                            my uint64 @ = readSizedInt16($second-fh),
+                                readSizedInt32($second-fh),
+                                readSizedInt16($second-fh),
+                                readSizedInt64($second-fh),
+                                readSizedInt64($second-fh),
+                                readSizedInt32($second-fh);
+                        }.Slip
+                    }
             }
         }
 
@@ -699,16 +717,38 @@ method !parse-snapshot($snapshot-task) {
                 }
             }
             elsif $!version == 2 {
-                dd $snapshot-task;
+                sub grab_n_refs_starting_at($n, $pos, \ref-kinds, \ref-indexes, \ref-tos) {
+                    my $fh = MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
+                    $fh.seek($pos, SeekFromBeginning);
+                    for ^$n {
+                        ref-kinds.push(readSizedInt64($fh));
+                        ref-indexes.push(readSizedInt64($fh));
+                        ref-tos.push(readSizedInt64($fh));
+                    }
+                }
                 my $fh = MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
                 $fh.seek($snapshot-task[1], SeekFromBeginning);
                 die "expected the references header" if $fh.exactly(4).decode("utf8") ne "refs";
                 my ($count, $size-per-reference) = readSizedInt64($fh) xx 2;
-                for ^$count {
-                    @ref-kinds.push(readSizedInt64($fh));
-                    @ref-indexes.push(readSizedInt64($fh));
-                    @ref-tos.push(readSizedInt64($fh));
-                }
+                $fh.fh.close;
+                my int8 @ref-kinds-second;
+                my int @ref-indexes-second;
+                my int @ref-tos-second;
+                await start {
+                        grab_n_refs_starting_at(
+                            $count div 2,
+                            $snapshot-task[1] + 4 + 16,
+                            @ref-kinds, @ref-indexes, @ref-tos);
+                    },
+                    start {
+                        grab_n_refs_starting_at(
+                            $count - $count div 2,
+                            $snapshot-task[1] + ($count div 2) * $size-per-reference + 4 + 16,
+                            @ref-kinds-second, @ref-indexes-second, @ref-tos-second);
+                    };
+                await start { @ref-kinds.splice(+@ref-kinds, 0, @ref-kinds-second); },
+                      start { @ref-indexes.splice(+@ref-indexes, 0, @ref-indexes-second); },
+                      start { @ref-tos.splice(+@ref-tos, 0, @ref-tos-second); };
             }
         }
         CATCH {
