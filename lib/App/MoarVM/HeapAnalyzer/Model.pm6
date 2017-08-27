@@ -398,10 +398,10 @@ sub readSizedInt32($fh) {
     #die "expected $bytesize bytes, but got { @buf.elems() }" unless @buf.elems >= $bytesize;
 
     my int64 $result =
-            @buf.shift +
-            nqp::bitshiftl_i(@buf.shift,  8) +
-            nqp::bitshiftl_i(@buf.shift, 16) +
-            nqp::bitshiftl_i(@buf.shift, 24)
+            nqp::add_i @buf.shift,
+            nqp::add_i nqp::bitshiftl_i(@buf.shift,  8),
+            nqp::add_i nqp::bitshiftl_i(@buf.shift, 16),
+                       nqp::bitshiftl_i(@buf.shift, 24)
 }
 sub readSizedInt16($fh) {
     my $bytesize = 2;
