@@ -353,7 +353,7 @@ class MyLittleBuffer {
         if $!buffer.elems > $size {
             $!buffer;
         } else {
-            my $newbuf = self.fh.read(4096);
+            my $newbuf := $!fh.read(4096);
             if $!buffer {
                 $!buffer ~= $newbuf;
             } else {
@@ -364,7 +364,7 @@ class MyLittleBuffer {
     }
 
     method seek(|c) {
-        self.fh.seek(|c);
+        $!fh.seek(|c);
         $!buffer = Buf.new();
     }
 
