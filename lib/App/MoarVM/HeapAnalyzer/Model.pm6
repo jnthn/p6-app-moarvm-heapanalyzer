@@ -377,35 +377,35 @@ class MyLittleBuffer {
     }
 }
 
-sub readSizedInt64($fh) {
-    my $bytesize = 8;
-    my @buf := $fh.gimme(8);
+sub readSizedInt64(@buf) {
+    #my $bytesize = 8;
+    #my @buf := $fh.gimme(8);
     #die "expected $bytesize bytes, but got { @buf.elems() }" unless @buf.elems >= $bytesize;
 
     my int64 $result =
-            nqp::add_i @buf.shift,
-            nqp::add_i nqp::bitshiftl_i(@buf.shift,  8),
-            nqp::add_i nqp::bitshiftl_i(@buf.shift, 16),
-            nqp::add_i nqp::bitshiftl_i(@buf.shift, 24),
-            nqp::add_i nqp::bitshiftl_i(@buf.shift, 32),
-            nqp::add_i nqp::bitshiftl_i(@buf.shift, 40),
-            nqp::add_i nqp::bitshiftl_i(@buf.shift, 48),
-                       nqp::bitshiftl_i(@buf.shift, 56)
+            nqp::add_i nqp::shift_i(@buf),
+            nqp::add_i nqp::bitshiftl_i(nqp::shift_i(@buf),  8),
+            nqp::add_i nqp::bitshiftl_i(nqp::shift_i(@buf), 16),
+            nqp::add_i nqp::bitshiftl_i(nqp::shift_i(@buf), 24),
+            nqp::add_i nqp::bitshiftl_i(nqp::shift_i(@buf), 32),
+            nqp::add_i nqp::bitshiftl_i(nqp::shift_i(@buf), 40),
+            nqp::add_i nqp::bitshiftl_i(nqp::shift_i(@buf), 48),
+                       nqp::bitshiftl_i(nqp::shift_i(@buf), 56)
 }
-sub readSizedInt32($fh) {
-    my $bytesize = 4;
-    my @buf := $fh.gimme(4);
+sub readSizedInt32(@buf) {
+    #my $bytesize = 4;
+    #my @buf := $fh.gimme(4);
     #die "expected $bytesize bytes, but got { @buf.elems() }" unless @buf.elems >= $bytesize;
 
     my int64 $result =
-            nqp::add_i @buf.shift,
-            nqp::add_i nqp::bitshiftl_i(@buf.shift,  8),
-            nqp::add_i nqp::bitshiftl_i(@buf.shift, 16),
-                       nqp::bitshiftl_i(@buf.shift, 24)
+            nqp::add_i nqp::shift_i(@buf),
+            nqp::add_i nqp::bitshiftl_i(nqp::shift_i(@buf),  8),
+            nqp::add_i nqp::bitshiftl_i(nqp::shift_i(@buf), 16),
+                       nqp::bitshiftl_i(nqp::shift_i(@buf), 24)
 }
-sub readSizedInt16($fh) {
-    my $bytesize = 2;
-    my @buf := $fh.gimme(2);
+sub readSizedInt16(@buf) {
+    #my $bytesize = 2;
+    #my @buf := $fh.gimme(2);
     #die "expected $bytesize bytes, but got { @buf.elems() }" unless @buf.elems >= $bytesize;
 
     my int64 $result =
@@ -484,7 +484,7 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
         my $fh = MyLittleBuffer.new(fh => $file.open(:r, :bin));
         constant index-entries = 4;
         $fh.seek(-8 * index-entries, SeekFromEnd);
-        my @sizes = readSizedInt64($fh) xx index-entries;
+        my @sizes = readSizedInt64($fh.gimme(8)) xx index-entries;
         dd @sizes;
         my ($stringheap_size, $types_size, $staticframe_size, $snapshot_entry_count) = @sizes;
         @sizes.pop; # remove the number of snapshot entries
@@ -507,7 +507,8 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
         $fh.seek(-8 * index-entries - 16 * $snapshot_entry_count, SeekFromEnd);
         my $snapshot-position = @positions.tail;
         @!unparsed-snapshots = do for ^$snapshot_entry_count {
-            my @sizes = readSizedInt64($fh), readSizedInt64($fh);
+            my @buf := $fh.gimme(16);
+            my @sizes = readSizedInt64(@buf), readSizedInt64(@buf);
             my $collpos = $snapshot-position;
             my $refspos = $collpos + @sizes[0];
             $snapshot-position += @sizes[0] + @sizes[1];
@@ -518,37 +519,39 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
 
 method !parse-strings-ver2($fh) {
     die "expected the strings header" if $fh.exactly(4).decode("utf8") ne "strs";
-    my $stringcount = readSizedInt64($fh);
+    my $stringcount = readSizedInt64($fh.gimme(8));
     do for ^$stringcount {
-        my $length = readSizedInt64($fh);
+        my $length = readSizedInt64($fh.gimme(8));
         $length ?? $fh.exactly($length).decode("utf8")
                 !! ""
     }
 }
 method !parse-types-ver2($fh) {
     die "expected the types header" if $fh.exactly(4).decode("utf8") ne "type";
-    my ($typecount, $size-per-type) = readSizedInt64($fh) xx 2;
+    my ($typecount, $size-per-type) = readSizedInt64($fh.gimme(8)) xx 2;
     my int @repr-name-indexes;
     my int @type-name-indexes;
     for ^$typecount {
-        my $length = readSizedInt64($fh);
-        @repr-name-indexes.push(readSizedInt64($fh));
-        @type-name-indexes.push(readSizedInt64($fh));
+        my @buf := $fh.gimme(24);
+        my $length = readSizedInt64(@buf);
+        @repr-name-indexes.push(readSizedInt64(@buf));
+        @type-name-indexes.push(readSizedInt64(@buf));
     }
     Types.new(:@repr-name-indexes, :@type-name-indexes, strings => await $!strings-promise);
 }
 method !parse-static-frames-ver2($fh) {
     die "expected the frames header" if $fh.exactly(4).decode("utf8") ne "fram";
-    my ($staticframecount, $size-per-frame) = readSizedInt64($fh) xx 2;
+    my ($staticframecount, $size-per-frame) = readSizedInt64($fh.gimme(4)) xx 2;
     my int @name-indexes;
     my int @cuid-indexes;
     my int32 @lines;
     my int @file-indexes;
     for ^$staticframecount {
-        @name-indexes.push(readSizedInt64($fh));
-        @cuid-indexes.push(readSizedInt64($fh));
-        @lines       .push(readSizedInt64($fh));
-        @file-indexes.push(readSizedInt64($fh));
+        my @buf := $fh.gimme(24);
+        @name-indexes.push(readSizedInt64(@buf));
+        @cuid-indexes.push(readSizedInt64(@buf));
+        @lines       .push(readSizedInt64(@buf));
+        @file-indexes.push(readSizedInt64(@buf));
     }
     StaticFrames.new(
         :@name-indexes, :@cuid-indexes, :@lines, :@file-indexes,
@@ -641,34 +644,36 @@ method !parse-snapshot($snapshot-task) {
                 })
             }
             elsif $!version == 2 {
-                my $fh = MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
+                my $fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
                 $fh.seek($snapshot-task[0], SeekFromBeginning);
                 die "expected the collectables header" if $fh.exactly(4).decode("utf8") ne "coll";
-                my ($count, $size-per-collectable) = readSizedInt64($fh) xx 2;
+                my ($count, $size-per-collectable) = readSizedInt64($fh.gimme(8)) xx 2;
 
                 my $startpos = $snapshot-task[0] + 4 + 16;
                 my $first-half-count = $count div 2;
 
-                my $second-fh = MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
+                my $second-fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
                 $second-fh.seek($startpos + $first-half-count * $size-per-collectable, SeekFromBeginning);
                 await start {
                         do for ^$first-half-count {
-                            my uint64 @ = readSizedInt16($fh),
-                                readSizedInt32($fh),
-                                readSizedInt16($fh),
-                                readSizedInt64($fh),
-                                readSizedInt64($fh),
-                                readSizedInt32($fh);
+                            my @buf := $fh.gimme(2 + 4 + 2 + 8 + 8 + 4);
+                            my uint64 @ = readSizedInt16(@buf),
+                                readSizedInt32(@buf),
+                                readSizedInt16(@buf),
+                                readSizedInt64(@buf),
+                                readSizedInt64(@buf),
+                                readSizedInt32(@buf);
                         }.Slip
                     },
                     start {
                         do for ^($count - $first-half-count) {
-                            my uint64 @ = readSizedInt16($second-fh),
-                                readSizedInt32($second-fh),
-                                readSizedInt16($second-fh),
-                                readSizedInt64($second-fh),
-                                readSizedInt64($second-fh),
-                                readSizedInt32($second-fh);
+                            my @buf := $second-fh.gimme(2 + 4 + 2 + 8 + 8 + 4);
+                            my uint64 @ = readSizedInt16(@buf),
+                                readSizedInt32(@buf),
+                                readSizedInt16(@buf),
+                                readSizedInt64(@buf),
+                                readSizedInt64(@buf),
+                                readSizedInt32(@buf);
                         }.Slip
                     }
             }
@@ -718,18 +723,19 @@ method !parse-snapshot($snapshot-task) {
             }
             elsif $!version == 2 {
                 sub grab_n_refs_starting_at($n, $pos, \ref-kinds, \ref-indexes, \ref-tos) {
-                    my $fh = MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
+                    my $fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
                     $fh.seek($pos, SeekFromBeginning);
                     for ^$n {
-                        ref-kinds.push(readSizedInt64($fh));
-                        ref-indexes.push(readSizedInt64($fh));
-                        ref-tos.push(readSizedInt64($fh));
+                        my @buf := $fh.gimme(24);
+                        ref-kinds.push(readSizedInt64(@buf));
+                        ref-indexes.push(readSizedInt64(@buf));
+                        ref-tos.push(readSizedInt64(@buf));
                     }
                 }
-                my $fh = MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
+                my $fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
                 $fh.seek($snapshot-task[1], SeekFromBeginning);
                 die "expected the references header" if $fh.exactly(4).decode("utf8") ne "refs";
-                my ($count, $size-per-reference) = readSizedInt64($fh) xx 2;
+                my ($count, $size-per-reference) = readSizedInt64($fh.gimme(8)) xx 2;
                 $fh.fh.close;
                 my int8 @ref-kinds-second;
                 my int @ref-indexes-second;
