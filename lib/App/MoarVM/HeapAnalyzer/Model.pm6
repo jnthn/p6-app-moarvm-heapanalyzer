@@ -712,50 +712,49 @@ method !parse-snapshot($snapshot-task) {
         my int8 @ref-kinds;
         my int @ref-indexes;
         my int @ref-tos;
-        my @references-pieces = do {
-            if $!version == 1 {
-                for $snapshot-task<collectables>.split(";") {
-                    my uint8 @pieces = .split(",").map(*.Int);
-                    @ref-kinds.push(@pieces.shift);
-                    @ref-indexes.push(@pieces.shift);
-                    @ref-tos.push(@pieces.shift);
-                }
+
+        if $!version == 1 {
+            for $snapshot-task<collectables>.split(";") {
+                my uint8 @pieces = .split(",").map(*.Int);
+                @ref-kinds.push(@pieces.shift);
+                @ref-indexes.push(@pieces.shift);
+                @ref-tos.push(@pieces.shift);
             }
-            elsif $!version == 2 {
-                sub grab_n_refs_starting_at($n, $pos, \ref-kinds, \ref-indexes, \ref-tos) {
-                    my $fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
-                    $fh.seek($pos, SeekFromBeginning);
-                    for ^$n {
-                        my @buf := $fh.gimme(24);
-                        ref-kinds.push(readSizedInt64(@buf));
-                        ref-indexes.push(readSizedInt64(@buf));
-                        ref-tos.push(readSizedInt64(@buf));
-                    }
-                }
+        }
+        elsif $!version == 2 {
+            sub grab_n_refs_starting_at($n, $pos, \ref-kinds, \ref-indexes, \ref-tos) {
                 my $fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
-                $fh.seek($snapshot-task[1], SeekFromBeginning);
-                die "expected the references header" if $fh.exactly(4).decode("utf8") ne "refs";
-                my ($count, $size-per-reference) = readSizedInt64($fh.gimme(8)) xx 2;
-                $fh.fh.close;
-                my int8 @ref-kinds-second;
-                my int @ref-indexes-second;
-                my int @ref-tos-second;
-                await start {
-                        grab_n_refs_starting_at(
-                            $count div 2,
-                            $snapshot-task[1] + 4 + 16,
-                            @ref-kinds, @ref-indexes, @ref-tos);
-                    },
-                    start {
-                        grab_n_refs_starting_at(
-                            $count - $count div 2,
-                            $snapshot-task[1] + ($count div 2) * $size-per-reference + 4 + 16,
-                            @ref-kinds-second, @ref-indexes-second, @ref-tos-second);
-                    };
-                await start { @ref-kinds.splice(+@ref-kinds, 0, @ref-kinds-second); },
-                      start { @ref-indexes.splice(+@ref-indexes, 0, @ref-indexes-second); },
-                      start { @ref-tos.splice(+@ref-tos, 0, @ref-tos-second); };
+                $fh.seek($pos, SeekFromBeginning);
+                for ^$n {
+                    my @buf := $fh.gimme(24);
+                    ref-kinds.push(readSizedInt64(@buf));
+                    ref-indexes.push(readSizedInt64(@buf));
+                    ref-tos.push(readSizedInt64(@buf));
+                }
             }
+            my $fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
+            $fh.seek($snapshot-task[1], SeekFromBeginning);
+            die "expected the references header" if $fh.exactly(4).decode("utf8") ne "refs";
+            my ($count, $size-per-reference) = readSizedInt64($fh.gimme(8)) xx 2;
+            $fh.fh.close;
+            my int8 @ref-kinds-second;
+            my int @ref-indexes-second;
+            my int @ref-tos-second;
+            await start {
+                    grab_n_refs_starting_at(
+                        $count div 2,
+                        $snapshot-task[1] + 4 + 16,
+                        @ref-kinds, @ref-indexes, @ref-tos);
+                },
+                start {
+                    grab_n_refs_starting_at(
+                        $count - $count div 2,
+                        $snapshot-task[1] + ($count div 2) * $size-per-reference + 4 + 16,
+                        @ref-kinds-second, @ref-indexes-second, @ref-tos-second);
+                };
+            await start { @ref-kinds.splice(+@ref-kinds, 0, @ref-kinds-second); },
+                  start { @ref-indexes.splice(+@ref-indexes, 0, @ref-indexes-second); },
+                  start { @ref-tos.splice(+@ref-tos, 0, @ref-tos-second); };
         }
         CATCH {
             .say
