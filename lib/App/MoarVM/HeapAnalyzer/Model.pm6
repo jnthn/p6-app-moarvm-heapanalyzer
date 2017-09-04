@@ -730,22 +730,22 @@ method !parse-snapshot($snapshot-task) {
 
                 for ^$n {
                     if $size == 54 { # "6"
-                        my @buf := $fh.gimme(25);
-                        ref-kinds.push(readSizedInt64(@buf));
+                        my @buf := $fh.gimme(18);
+                        ref-kinds.push(@buf.shift);
                         ref-indexes.push(readSizedInt64(@buf));
                         ref-tos.push(readSizedInt64(@buf));
                         $size = @buf.shift;
                     }
                     elsif $size == 51 { # "3"
-                        my @buf := $fh.gimme(13);
-                        ref-kinds.push(readSizedInt32(@buf));
+                        my @buf := $fh.gimme(10);
+                        ref-kinds.push(@buf.shift);
                         ref-indexes.push(readSizedInt32(@buf));
                         ref-tos.push(readSizedInt32(@buf));
                         $size = @buf.shift;
                     }
                     elsif $size == 49 { # "1"
-                        my @buf := $fh.gimme(7);
-                        ref-kinds.push(readSizedInt16(@buf));
+                        my @buf := $fh.gimme(6);
+                        ref-kinds.push(@buf.shift);
                         ref-indexes.push(readSizedInt16(@buf));
                         ref-tos.push(readSizedInt16(@buf));
                         $size = @buf.shift;
