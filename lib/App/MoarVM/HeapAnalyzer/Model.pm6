@@ -532,8 +532,7 @@ method !parse-types-ver2($fh) {
     my int @repr-name-indexes;
     my int @type-name-indexes;
     for ^$typecount {
-        my @buf := $fh.gimme(24);
-        my $length = readSizedInt64(@buf);
+        my @buf := $fh.gimme(16);
         @repr-name-indexes.push(readSizedInt64(@buf));
         @type-name-indexes.push(readSizedInt64(@buf));
     }
