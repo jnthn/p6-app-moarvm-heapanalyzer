@@ -713,7 +713,7 @@ method !parse-snapshot($snapshot-task) {
         my int @ref-tos;
 
         if $!version == 1 {
-            for $snapshot-task<collectables>.split(";") {
+            for $snapshot-task<references>.split(";") {
                 my uint8 @pieces = .split(",").map(*.Int);
                 @ref-kinds.push(@pieces.shift);
                 @ref-indexes.push(@pieces.shift);
