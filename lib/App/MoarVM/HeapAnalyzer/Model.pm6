@@ -729,33 +729,34 @@ method !parse-snapshot($snapshot-task) {
                 my int $size = $fh.exactly(1)[0];
 
                 for ^$n {
+                    my @buf;
                     if $size == 54 { # "6"
-                        my @buf := $fh.gimme(18);
-                        ref-kinds.push(@buf.shift);
+                        @buf := $fh.gimme(18);
+                        ref-kinds.push(nqp::shift_i(@buf));
                         ref-indexes.push(readSizedInt64(@buf));
                         ref-tos.push(readSizedInt64(@buf));
-                        $size = @buf.shift;
+                        $size = nqp::shift_i(@buf);
                     }
                     elsif $size == 51 { # "3"
-                        my @buf := $fh.gimme(10);
-                        ref-kinds.push(@buf.shift);
+                        @buf := $fh.gimme(10);
+                        ref-kinds.push(nqp::shift_i(@buf));
                         ref-indexes.push(readSizedInt32(@buf));
                         ref-tos.push(readSizedInt32(@buf));
-                        $size = @buf.shift;
+                        $size = nqp::shift_i(@buf);
                     }
                     elsif $size == 49 { # "1"
-                        my @buf := $fh.gimme(6);
-                        ref-kinds.push(@buf.shift);
+                        @buf := $fh.gimme(6);
+                        ref-kinds.push(nqp::shift_i(@buf));
                         ref-indexes.push(readSizedInt16(@buf));
                         ref-tos.push(readSizedInt16(@buf));
-                        $size = @buf.shift;
+                        $size = nqp::shift_i(@buf);
                     }
                     elsif $size == 48 { # "0"
-                        my @buf := $fh.gimme(4);
-                        ref-kinds.push(@buf.shift);
-                        ref-indexes.push(@buf.shift);
-                        ref-tos.push(@buf.shift);
-                        $size = @buf.shift;
+                        @buf := $fh.gimme(4);
+                        ref-kinds.push(nqp::shift_i(@buf));
+                        ref-indexes.push(nqp::shift_i(@buf));
+                        ref-tos.push(nqp::shift_i(@buf));
+                        $size = nqp::shift_i(@buf);
                     }
                     else {
                         die "unexpected size indicator in references blob: $size ($size.chr())";
