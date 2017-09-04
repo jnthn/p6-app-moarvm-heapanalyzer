@@ -409,8 +409,8 @@ sub readSizedInt16(@buf) {
     #die "expected $bytesize bytes, but got { @buf.elems() }" unless @buf.elems >= $bytesize;
 
     my int64 $result =
-            @buf.shift +
-            @buf.shift +< 8;
+            nqp::add_i(nqp::shift_i(@buf),
+                       nqp::bitshiftl_i(nqp::shift_i(@buf), 8));
 }
 
 submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
