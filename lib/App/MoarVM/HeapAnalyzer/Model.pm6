@@ -504,15 +504,16 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
         $!types-promise         = start self!parse-types-ver2($types_fd);
         $!static-frames-promise = start self!parse-static-frames-ver2($staticframe_fd);
 
-        $fh.seek(-8 * index-entries - 16 * $snapshot_entry_count, SeekFromEnd);
+        $fh.seek(-8 * index-entries - 24 * $snapshot_entry_count, SeekFromEnd);
         my $snapshot-position = @positions.tail;
         @!unparsed-snapshots = do for ^$snapshot_entry_count {
-            my @buf := $fh.gimme(16);
-            my @sizes = readSizedInt64(@buf), readSizedInt64(@buf);
+            my @buf := $fh.gimme(24);
+            my @sizes = readSizedInt64(@buf), readSizedInt64(@buf), readSizedInt64(@buf);
             my $collpos = $snapshot-position;
             my $refspos = $collpos + @sizes[0];
+            my $halfrefpos = $refspos + @sizes[2];
             $snapshot-position += @sizes[0] + @sizes[1];
-            [$collpos, $refspos, $file];
+            [$collpos, $halfrefpos, $refspos, $file];
         }
     }
 }
@@ -724,11 +725,41 @@ method !parse-snapshot($snapshot-task) {
             sub grab_n_refs_starting_at($n, $pos, \ref-kinds, \ref-indexes, \ref-tos) {
                 my $fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
                 $fh.seek($pos, SeekFromBeginning);
+
+                my int $size = $fh.exactly(1)[0];
+
                 for ^$n {
-                    my @buf := $fh.gimme(24);
-                    ref-kinds.push(readSizedInt64(@buf));
-                    ref-indexes.push(readSizedInt64(@buf));
-                    ref-tos.push(readSizedInt64(@buf));
+                    if $size == 54 { # "6"
+                        my @buf := $fh.gimme(25);
+                        ref-kinds.push(readSizedInt64(@buf));
+                        ref-indexes.push(readSizedInt64(@buf));
+                        ref-tos.push(readSizedInt64(@buf));
+                        $size = @buf.shift;
+                    }
+                    elsif $size == 51 { # "3"
+                        my @buf := $fh.gimme(13);
+                        ref-kinds.push(readSizedInt32(@buf));
+                        ref-indexes.push(readSizedInt32(@buf));
+                        ref-tos.push(readSizedInt32(@buf));
+                        $size = @buf.shift;
+                    }
+                    elsif $size == 49 { # "1"
+                        my @buf := $fh.gimme(7);
+                        ref-kinds.push(readSizedInt16(@buf));
+                        ref-indexes.push(readSizedInt16(@buf));
+                        ref-tos.push(readSizedInt16(@buf));
+                        $size = @buf.shift;
+                    }
+                    elsif $size == 48 { # "0"
+                        my @buf := $fh.gimme(4);
+                        ref-kinds.push(@buf.shift);
+                        ref-indexes.push(@buf.shift);
+                        ref-tos.push(@buf.shift);
+                        $size = @buf.shift;
+                    }
+                    else {
+                        die "unexpected size indicator in references blob: $size ($size.chr())";
+                    }
                 }
             }
             my $fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
@@ -748,7 +779,7 @@ method !parse-snapshot($snapshot-task) {
                 start {
                     grab_n_refs_starting_at(
                         $count - $count div 2,
-                        $snapshot-task[1] + ($count div 2) * $size-per-reference + 4 + 16,
+                        $snapshot-task[2] + 4 + 16,
                         @ref-kinds-second, @ref-indexes-second, @ref-tos-second);
                 };
             await start { @ref-kinds.splice(+@ref-kinds, 0, @ref-kinds-second); },
