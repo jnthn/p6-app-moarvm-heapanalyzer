@@ -763,7 +763,7 @@ method !parse-snapshot($snapshot-task) {
                 }
             }
             my $fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
-            $fh.seek($snapshot-task[1], SeekFromBeginning);
+            $fh.seek($snapshot-task[2], SeekFromBeginning);
             die "expected the references header" if $fh.exactly(4).decode("latin1") ne "refs";
             my ($count, $size-per-reference) = readSizedInt64($fh.gimme(8)) xx 2;
             $fh.fh.close;
@@ -773,13 +773,13 @@ method !parse-snapshot($snapshot-task) {
             await start {
                     grab_n_refs_starting_at(
                         $count div 2,
-                        $snapshot-task[1] + 4 + 16,
+                        $snapshot-task[2] + 4 + 16,
                         @ref-kinds, @ref-indexes, @ref-tos);
                 },
                 start {
                     grab_n_refs_starting_at(
                         $count - $count div 2,
-                        $snapshot-task[2] + 4 + 16,
+                        $snapshot-task[1],
                         @ref-kinds-second, @ref-indexes-second, @ref-tos-second);
                 };
             await start { @ref-kinds.splice(+@ref-kinds, 0, @ref-kinds-second); },
