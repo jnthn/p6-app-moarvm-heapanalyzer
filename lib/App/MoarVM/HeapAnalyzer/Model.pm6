@@ -490,17 +490,8 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
             $fh
         }
 
-        my @positions = [\+] 16, $stringheap_size, $types_size, $staticframe_size;
-        dd @positions;
-        my @fds = @positions.map(&fh-at);
-        my ($stringheap_fd, $types_fd, $staticframe_fd, $snapshots_fd) = @fds;
-
-        $!strings-promise       = start self!parse-strings-ver2($stringheap_fd);
-        $!types-promise         = start self!parse-types-ver2($types_fd);
-        $!static-frames-promise = start self!parse-static-frames-ver2($staticframe_fd);
-
         $fh.seek(-8 * index-entries - 24 * $snapshot_entry_count, SeekFromEnd);
-        my $snapshot-position = @positions.tail;
+        my $snapshot-position = 16;
         @!unparsed-snapshots = do for ^$snapshot_entry_count {
             my @buf := $fh.gimme(24);
             my @sizes = readSizedInt64(@buf), readSizedInt64(@buf), readSizedInt64(@buf);
@@ -510,6 +501,15 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
             $snapshot-position += @sizes[0] + @sizes[1];
             [$collpos, $halfrefpos, $refspos, $file];
         }
+
+        my @positions = [\+] $snapshot-position, $stringheap_size, $types_size, $staticframe_size;
+        dd @positions;
+        my @fds = @positions.map(&fh-at);
+        my ($stringheap_fd, $types_fd, $staticframe_fd, $snapshots_fd) = @fds;
+
+        $!strings-promise       = start self!parse-strings-ver2($stringheap_fd);
+        $!types-promise         = start self!parse-types-ver2($types_fd);
+        $!static-frames-promise = start self!parse-static-frames-ver2($staticframe_fd);
     }
 }
 
