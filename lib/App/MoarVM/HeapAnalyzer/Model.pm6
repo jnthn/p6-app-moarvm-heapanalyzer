@@ -733,30 +733,30 @@ method !parse-snapshot($snapshot-task) {
                     my @buf;
                     if $size == 54 { # "6"
                         @buf := $fh.gimme(18);
-                        ref-kinds.push(nqp::shift_i(@buf));
-                        ref-indexes.push(readSizedInt64(@buf));
-                        ref-tos.push(readSizedInt64(@buf));
+                        nqp::push_i(ref-kinds, nqp::shift_i(@buf));
+                        nqp::push_i(ref-indexes, readSizedInt64(@buf));
+                        nqp::push_i(ref-tos, readSizedInt64(@buf));
                         $size = nqp::shift_i(@buf);
                     }
                     elsif $size == 51 { # "3"
                         @buf := $fh.gimme(10);
-                        ref-kinds.push(nqp::shift_i(@buf));
-                        ref-indexes.push(readSizedInt32(@buf));
-                        ref-tos.push(readSizedInt32(@buf));
+                        nqp::push_i(ref-kinds, nqp::shift_i(@buf));
+                        nqp::push_i(ref-indexes, readSizedInt32(@buf));
+                        nqp::push_i(ref-tos, readSizedInt32(@buf));
                         $size = nqp::shift_i(@buf);
                     }
                     elsif $size == 49 { # "1"
                         @buf := $fh.gimme(6);
-                        ref-kinds.push(nqp::shift_i(@buf));
-                        ref-indexes.push(readSizedInt16(@buf));
-                        ref-tos.push(readSizedInt16(@buf));
+                        nqp::push_i(ref-kinds, nqp::shift_i(@buf));
+                        nqp::push_i(ref-indexes, readSizedInt16(@buf));
+                        nqp::push_i(ref-tos, readSizedInt16(@buf));
                         $size = nqp::shift_i(@buf);
                     }
                     elsif $size == 48 { # "0"
                         @buf := $fh.gimme(4);
-                        ref-kinds.push(nqp::shift_i(@buf));
-                        ref-indexes.push(nqp::shift_i(@buf));
-                        ref-tos.push(nqp::shift_i(@buf));
+                        nqp::push_i(ref-kinds, nqp::shift_i(@buf));
+                        nqp::push_i(ref-indexes, nqp::shift_i(@buf));
+                        nqp::push_i(ref-tos, nqp::shift_i(@buf));
                         $size = nqp::shift_i(@buf);
                     }
                     else {
