@@ -652,46 +652,52 @@ method !parse-snapshot($snapshot-task) {
                 await start {
                         do for ^$first-half-count {
                             my @buf := $fh.gimme(2 + 4 + 2 + 8 + 8 + 4);
-                            my uint64 @ = readSizedInt16(@buf),
-                                readSizedInt32(@buf),
-                                readSizedInt16(@buf),
-                                readSizedInt64(@buf),
-                                readSizedInt64(@buf),
-                                readSizedInt32(@buf);
+                            my uint64 @result;
+                            nqp::push_i(@result, readSizedInt16(@buf));
+                            nqp::push_i(@result, readSizedInt32(@buf));
+                            nqp::push_i(@result, readSizedInt16(@buf));
+                            nqp::push_i(@result, readSizedInt64(@buf));
+                            nqp::push_i(@result, readSizedInt64(@buf));
+                            nqp::push_i(@result, readSizedInt32(@buf));
+                            @result;
                         }.Slip
                     },
                     start {
                         do for ^($count - $first-half-count) {
                             my @buf := $second-fh.gimme(2 + 4 + 2 + 8 + 8 + 4);
-                            my uint64 @ = readSizedInt16(@buf),
-                                readSizedInt32(@buf),
-                                readSizedInt16(@buf),
-                                readSizedInt64(@buf),
-                                readSizedInt64(@buf),
-                                readSizedInt32(@buf);
+                            my uint64 @result;
+                            nqp::push_i(@result, readSizedInt16(@buf)),
+                            nqp::push_i(@result, readSizedInt32(@buf)),
+                            nqp::push_i(@result, readSizedInt16(@buf)),
+                            nqp::push_i(@result, readSizedInt64(@buf)),
+                            nqp::push_i(@result, readSizedInt64(@buf)),
+                            nqp::push_i(@result, readSizedInt32(@buf));
+                            @result;
                         }.Slip
                     }
             }
         }
 
         for @collectable-pieces -> @pieces {
-            my int $kind = @pieces.shift;
-            @col-kinds.push($kind);
+            my int $kind = nqp::shift_i(@pieces);
+
+            nqp::push_i(@col-kinds, $kind);
+
             if    $kind == 1 { $num-objects++ }
             elsif $kind == 2 { $num-type-objects++ }
             elsif $kind == 3 { $num-stables++ }
             elsif $kind == 4 { $num-frames++ }
 
-            @col-desc-indexes.push(@pieces.shift);
+            nqp::push_i(@col-desc-indexes, nqp::shift_i(@pieces));
 
-            my int $size = @pieces.shift;
-            @col-size.push($size);
-            my int $unmanaged-size = @pieces.shift;
-            @col-unmanaged-size.push($unmanaged-size);
+            my int $size = nqp::shift_i(@pieces);
+            nqp::push_i(@col-size, $size);
+            my int $unmanaged-size = nqp::shift_i(@pieces);
+            nqp::push_i(@col-unmanaged-size, $unmanaged-size);
             $total-size += $size + $unmanaged-size;
 
-            @col-refs-start.push(@pieces.shift);
-            @col-num-refs.push(@pieces.shift);
+            nqp::push_i(@col-refs-start, nqp::shift_i(@pieces));
+            nqp::push_i(@col-num-refs, nqp::shift_i(@pieces));
         }
         CATCH {
             .say
