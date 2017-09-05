@@ -350,15 +350,10 @@ class MyLittleBuffer {
     has $.fh;
 
     method gimme(int $size) {
-        if $!buffer.elems > $size {
+        if nqp::elems(nqp::decont($!buffer)) > $size {
             $!buffer;
         } else {
-            my $newbuf := $!fh.read(4096);
-            if $!buffer {
-                $!buffer ~= $newbuf;
-            } else {
-                $!buffer = $newbuf;
-            }
+            $!buffer.splice(nqp::elems(nqp::decont($!buffer)), 0, $!fh.read(4096));
             $!buffer;
         }
     }
