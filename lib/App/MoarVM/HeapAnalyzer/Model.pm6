@@ -111,6 +111,9 @@ my class Snapshot {
     has int @!col-refs-start;
     has int32 @!col-num-refs;
 
+    has int @!col-revrefs-start;
+    has int @!col-num-revrefs;
+
     has @!strings;
     has $!types;
     has $!static-frames;
@@ -124,6 +127,8 @@ my class Snapshot {
     has int8 @!ref-kinds;
     has int @!ref-indexes;
     has int @!ref-tos;
+
+    has int @!revrefs-tos;
 
     has @!bfs-distances;
     has @!bfs-preds;
@@ -306,6 +311,17 @@ my class Snapshot {
         @parts;
     }
 
+    method reverse-refs($idx) {
+        self!ensure-incidents();
+
+        say (0..^@!col-num-revrefs[$idx]) + @!col-revrefs-start[$idx];
+
+        do for (0..^@!col-num-revrefs[$idx]) + @!col-revrefs-start[$idx] -> $r {
+            my int $source = @!revrefs-tos[$r];
+            self.describe-col($source) ~ " ($source)";
+        }
+    }
+
     method !ensure-bfs() {
         return if @!bfs-distances;
 
@@ -342,6 +358,49 @@ my class Snapshot {
         @!bfs-distances := @distances;
         @!bfs-preds := @pred;
         @!bfs-pred-refs := @pred-ref;
+    }
+
+    method !ensure-incidents() {
+        return if @!revrefs-tos;
+
+        my int $num-coll = +@!col-kinds;
+        my int $num-refs = +@!ref-tos;
+        note "got $num-coll collectables to go through";
+
+        my int @incoming-count;
+
+        @incoming-count[$num-coll - 1] = 0;
+
+        note "going through cols once";
+        loop (my int $r = 0; $r < $num-refs; $r++) {
+            @incoming-count[@!ref-tos[$r]]++;
+        }
+
+        my int $prefixsum;
+
+        note "going through cols twice";
+        loop (my int $c = 0; $c < $num-coll; $c++) {
+            my int $count = @incoming-count[$c];
+            @!col-revrefs-start[$c] = $prefixsum;
+            @!col-num-revrefs[$c] = $count;
+            $prefixsum += $count;
+        }
+
+        my int64 @cursors;
+        @cursors[$num-coll - 1] = 0;
+
+        note "going through cols three times";
+        loop ($c = 0; $c < $num-coll; $c++) {
+            my int $start = @!col-refs-start[$c];
+            my int $last-ref = $start + @!col-num-refs[$c];
+            loop (my $r = $start; $r < $last-ref; $r++) {
+                my $to = @!ref-tos[$r];
+                my $targetpos = @!col-revrefs-start[$to] + @cursors[$to];
+                @cursors[$to]++;
+                note "tried to overwrite reverse-to in spot $targetpos" unless @!revrefs-tos[$targetpos] == 0;
+                @!revrefs-tos[$targetpos] = $c;
+            }
+        }
     }
 }
 

@@ -136,6 +136,12 @@ method interactive(IO::Path $file) {
                     say @pieces.join("\n") ~ "\n";
                 }
             }
+            when /^ incidents \s+ (\d+) \s* $/ {
+                my $idx = $0.Int;
+                with-current-snapshot -> $s {
+                    .say for $s.reverse-refs($idx);
+                }
+            }
             when 'help' {
                 say help();
             }
