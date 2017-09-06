@@ -368,7 +368,7 @@ class MyLittleBuffer {
         Buf.new($!buffer.splice(0, $size));
     }
     method tell {
-        "NYI"
+        $!fh.tell - nqp::elems(nqp::decont($!buffer))
     }
 }
 
@@ -478,9 +478,9 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
     elsif $!version == 2 {
         my $fh = MyLittleBuffer.new(fh => $file.open(:r, :bin));
         constant index-entries = 4;
+        constant per-snapshot-entries = 4;
         $fh.seek(-8 * index-entries, SeekFromEnd);
         my @sizes = readSizedInt64($fh.gimme(8)) xx index-entries;
-        dd @sizes;
         my ($stringheap_size, $types_size, $staticframe_size, $snapshot_entry_count) = @sizes;
         @sizes.pop; # remove the number of snapshot entries
 
@@ -490,20 +490,20 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
             $fh
         }
 
-        $fh.seek(-8 * index-entries - 24 * $snapshot_entry_count, SeekFromEnd);
+        $fh.seek(-8 * index-entries - (8 * per-snapshot-entries) * $snapshot_entry_count, SeekFromEnd);
         my $snapshot-position = 16;
         @!unparsed-snapshots = do for ^$snapshot_entry_count {
-            my @buf := $fh.gimme(24);
-            my @sizes = readSizedInt64(@buf), readSizedInt64(@buf), readSizedInt64(@buf);
+            my @buf := $fh.gimme(per-snapshot-entries * 8);
+            my @sizes = readSizedInt64(@buf), readSizedInt64(@buf), readSizedInt64(@buf), readSizedInt64(@buf);
             my $collpos = $snapshot-position;
             my $refspos = $collpos + @sizes[0];
             my $halfrefpos = $refspos + @sizes[2];
-            $snapshot-position += @sizes[0] + @sizes[1];
-            [$collpos, $halfrefpos, $refspos, $file];
+            my $incrementalpos = $refspos + @sizes[1];
+            $snapshot-position += @sizes[0] + @sizes[1] + @sizes[3];
+            [$collpos, $halfrefpos, $refspos, $incrementalpos, $file];
         }
 
         my @positions = [\+] $snapshot-position, $stringheap_size, $types_size, $staticframe_size;
-        dd @positions;
         my @fds = @positions.map(&fh-at);
         my ($stringheap_fd, $types_fd, $staticframe_fd, $snapshots_fd) = @fds;
 
@@ -513,8 +513,14 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
     }
 }
 
+sub expect-header($fh, $name, $text = $name.substr(0, 4)) {
+    my $result = $fh.exactly($text.chars).decode("latin1");
+    die "expected the $name header at 0x{ ($fh.tell - $text.chars).base(16) }, but got $result.perl() instead." unless $result eq $text;
+
+}
+
 method !parse-strings-ver2($fh) {
-    die "expected the strings header" if $fh.exactly(4).decode("latin1") ne "strs";
+    expect-header($fh, "strings", "strs");
     my $stringcount = readSizedInt64($fh.gimme(8));
     do for ^$stringcount {
         my $length = readSizedInt64($fh.gimme(8));
@@ -523,7 +529,7 @@ method !parse-strings-ver2($fh) {
     }
 }
 method !parse-types-ver2($fh) {
-    die "expected the types header" if $fh.exactly(4).decode("latin1") ne "type";
+    expect-header($fh, "types");
     my ($typecount, $size-per-type) = readSizedInt64($fh.gimme(8)) xx 2;
     my int @repr-name-indexes;
     my int @type-name-indexes;
@@ -535,7 +541,7 @@ method !parse-types-ver2($fh) {
     Types.new(:@repr-name-indexes, :@type-name-indexes, strings => await $!strings-promise);
 }
 method !parse-static-frames-ver2($fh) {
-    die "expected the frames header" if $fh.exactly(4).decode("latin1") ne "fram";
+    expect-header($fh, "frames");
     my ($staticframecount, $size-per-frame) = readSizedInt64($fh.gimme(4)) xx 2;
     my int @name-indexes;
     my int @cuid-indexes;
@@ -641,7 +647,7 @@ method !parse-snapshot($snapshot-task) {
             elsif $!version == 2 {
                 my $fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
                 $fh.seek($snapshot-task[0], SeekFromBeginning);
-                die "expected the collectables header" if $fh.exactly(4).decode("latin1") ne "coll";
+                expect-header($fh, "collectables");
                 my ($count, $size-per-collectable) = readSizedInt64($fh.gimme(8)) xx 2;
 
                 my $startpos = $snapshot-task[0] + 4 + 16;
@@ -766,7 +772,7 @@ method !parse-snapshot($snapshot-task) {
             }
             my $fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
             $fh.seek($snapshot-task[2], SeekFromBeginning);
-            die "expected the references header" if $fh.exactly(4).decode("latin1") ne "refs";
+            expect-header($fh, "references", "refs");
             my ($count, $size-per-reference) = readSizedInt64($fh.gimme(8)) xx 2;
             $fh.fh.close;
             my int8 @ref-kinds-second;
