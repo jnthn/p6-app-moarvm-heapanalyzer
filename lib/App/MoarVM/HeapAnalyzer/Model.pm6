@@ -516,7 +516,6 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
 sub expect-header($fh, $name, $text = $name.substr(0, 4)) {
     my $result = $fh.exactly($text.chars).decode("latin1");
     die "expected the $name header at 0x{ ($fh.tell - $text.chars).base(16) }, but got $result.perl() instead." unless $result eq $text;
-
 }
 
 method !parse-strings-ver2($fh) {
