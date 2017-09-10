@@ -90,6 +90,10 @@ my class StaticFrames {
                 @found.push($i) if @!name-indexes[$i] == $goal;
             }
         }
+        if $name eq "<anon>" {
+            my @more = self.all-with-name("");
+            @found.splice(+@found, 0, @more);
+        }
         @found
     }
 }
