@@ -645,7 +645,7 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
 
         $fh.seek(-8 * index-entries - (8 * per-snapshot-entries) * $snapshot_entry_count, SeekFromEnd);
         my $snapshot-position = 16;
-        @!unparsed-snapshots = do for ^$snapshot_entry_count {
+        @!unparsed-snapshots = do for ^$snapshot_entry_count -> $index {
             my @buf := $fh.gimme(per-snapshot-entries * 8);
             my @sizes = readSizedInt64(@buf), readSizedInt64(@buf), readSizedInt64(@buf), readSizedInt64(@buf);
             my $collpos = $snapshot-position;
@@ -653,7 +653,7 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
             my $halfrefpos = $refspos + @sizes[2];
             my $incrementalpos = $refspos + @sizes[1];
             $snapshot-position += @sizes[0] + @sizes[1] + @sizes[3];
-            [$collpos, $halfrefpos, $refspos, $incrementalpos, $file];
+            {:$collpos, :$halfrefpos, :$refspos, :$incrementalpos, :$file, :$index};
         }
 
         my @positions = [\+] $snapshot-position, $stringheap_size, $types_size, $staticframe_size;
@@ -752,10 +752,14 @@ method num-snapshots() {
     @!unparsed-snapshots.elems
 }
 
-enum SnapshotStatus is export <Preparing Ready>;
+enum SnapshotStatus is export <Preparing Ready Unprepared>;
 
-method prepare-snapshot($index) {
+method prepare-snapshot($index, :$updates) {
     with @!snapshot-promises[$index] -> $prom {
+        if $updates {
+            note "prepare-snapshot called with updates, but promise already exists";
+            $updates.done();
+        }
         given $prom.status {
             when Kept { Ready }
             when Broken { await $prom }
@@ -764,7 +768,8 @@ method prepare-snapshot($index) {
     }
     else {
         with @!unparsed-snapshots[$index] {
-            @!snapshot-promises[$index] = start self!parse-snapshot($_);
+            note "prepare-snapshot called with ...updates? { so $updates }";
+            @!snapshot-promises[$index] = start self!parse-snapshot($_, :$updates);
             Preparing
         }
         else {
@@ -773,16 +778,29 @@ method prepare-snapshot($index) {
     }
 }
 
-method promise-snapshot($index) {
+method snapshot-state($index) {
+    with @!snapshot-promises[$index] -> $prom {
+        given $prom.status {
+            when Kept { Ready }
+            when Broken { await $prom }
+            default { Preparing }
+        }
+    }
+    else {
+        Unprepared
+    }
+}
+
+method promise-snapshot($index, :$updates) {
+    # XXX index checks
     @!snapshot-promises[$index] //= start self!parse-snapshot(
-        @!unparsed-snapshots[$index]
+        @!unparsed-snapshots[$index], :$updates
     )
 }
 
-method get-snapshot($index) {
-    await @!snapshot-promises[$index] //= start self!parse-snapshot(
-        @!unparsed-snapshots[$index]
-    )
+method get-snapshot($index, :$updates) {
+    # XXX index checks
+    await self.promise-snapshot($index, :$updates);
 }
 
 method forget-snapshot($index) {
@@ -793,7 +811,9 @@ method forget-snapshot($index) {
     }
 }
 
-method !parse-snapshot($snapshot-task) {
+method !parse-snapshot($snapshot-task, :$updates) {
+    note "parse snapshot with updates? { so $updates }";
+    $updates.emit("hi! i'm the parser!") if $updates;
     my $col-data = start {
         my int8 @col-kinds;
         my int32 @col-desc-indexes;
@@ -838,15 +858,26 @@ method !parse-snapshot($snapshot-task) {
             }
         }
         elsif $!version == 2 {
-            my $fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
-            $fh.seek($snapshot-task[0], SeekFromBeginning);
+            my $fh := MyLittleBuffer.new(fh => $snapshot-task<file>.open(:r, :bin, :buffer(4096)));
+            $fh.seek($snapshot-task<collpos>, SeekFromBeginning);
             expect-header($fh, "collectables");
             my ($count, $size-per-collectable) = readSizedInt64($fh.gimme(8)) xx 2;
 
-            my $startpos = $snapshot-task[0] + 4 + 16;
+            $updates.emit({ index => $snapshot-task<index>, collectable-count => $count }) if $updates;
+
+            my $done = 0;
+
+            start react {
+                whenever Supply.interval(5) {
+                    last if $done;
+                    $updates.emit({ index => $snapshot-task<index>, collectable-progress => $num-objects / $count }) if $updates;
+                }
+            }
+
+            my $startpos = $snapshot-task<collpos> + 4 + 16;
             my $first-half-count = $count div 2;
 
-            my $second-fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
+            my $second-fh := MyLittleBuffer.new(fh => $snapshot-task<file>.open(:r, :bin, :buffer(4096)));
             $second-fh.seek($startpos + $first-half-count * $size-per-collectable, SeekFromBeginning);
 
             my Channel $results .= new;
@@ -858,6 +889,7 @@ method !parse-snapshot($snapshot-task) {
             }
 
             my $first-half-done = start {
+                my $start = now;
                 my @result := $empty-frames.receive;
                 for ^$first-half-count {
                     my @buf := $fh.gimme(2 + 4 + 2 + 8 + 8 + 4);
@@ -867,9 +899,10 @@ method !parse-snapshot($snapshot-task) {
                     nqp::push_i(@result, readSizedInt64(@buf));
                     nqp::push_i(@result, readSizedInt64(@buf));
                     nqp::push_i(@result, readSizedInt32(@buf));
-                    if @result.elems == 6 * 100 {
+                    if @result.elems == 6 * 50000 {
                         $results.send(@result);
                         @result := $empty-frames.receive;
+                        $start = now;
                     }
                 }
                 CATCH {
@@ -920,7 +953,11 @@ method !parse-snapshot($snapshot-task) {
                 }
                 $empty-frames.send(@pieces);
             }
+            $done = 1;
         }
+
+
+        $updates.emit({ index => $snapshot-task<index>, collectable-progress => 1 }) if $updates;
 
         hash(
             :@col-kinds, :@col-desc-indexes, :@col-size, :@col-unmanaged-size,
@@ -944,7 +981,7 @@ method !parse-snapshot($snapshot-task) {
         }
         elsif $!version == 2 {
             sub grab_n_refs_starting_at($n, $pos, \ref-kinds, \ref-indexes, \ref-tos) {
-                my $fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
+                my $fh := MyLittleBuffer.new(fh => $snapshot-task<file>.open(:r, :bin, :buffer(4096)));
                 $fh.seek($pos, SeekFromBeginning);
 
                 my int $size = $fh.exactly(1)[0];
@@ -984,11 +1021,13 @@ method !parse-snapshot($snapshot-task) {
                     }
                 }
             }
-            my $fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
-            $fh.seek($snapshot-task[2], SeekFromBeginning);
+            my $fh := MyLittleBuffer.new(fh => $snapshot-task<file>.open(:r, :bin, :buffer(4096)));
+            $fh.seek($snapshot-task<refspos>, SeekFromBeginning);
             expect-header($fh, "references", "refs");
             my ($count, $size-per-reference) = readSizedInt64($fh.gimme(8)) xx 2;
             $fh.fh.close;
+
+            $updates.emit({ index => $snapshot-task<index>, references-count => $count }) if $updates;
 
             my int8 @ref-kinds-second;
             my int32 @ref-indexes-second;
@@ -996,29 +1035,28 @@ method !parse-snapshot($snapshot-task) {
             await start {
                     grab_n_refs_starting_at(
                         $count div 2,
-                        $snapshot-task[2] + 4 + 16,
+                        $snapshot-task<refspos> + 4 + 16,
                         @ref-kinds, @ref-indexes, @ref-tos);
                 },
                 start {
                     grab_n_refs_starting_at(
                         $count - $count div 2,
-                        $snapshot-task[1],
+                        $snapshot-task<halfrefpos>,
                         @ref-kinds-second, @ref-indexes-second, @ref-tos-second);
                 };
-            my $size = 0;
-            for @ref-kinds-second, @ref-indexes-second, @ref-tos-second {
-                try $size += ($_.of.^nativesize div 8) * $_.elems();
-            }
-            await start { @ref-kinds.append( @ref-kinds-second); },
-                  start { @ref-indexes.append( @ref-indexes-second); },
-                  start { @ref-tos.append( @ref-tos-second); };
-            $size = 0;
-            for @ref-kinds, @ref-indexes, @ref-tos {
-                try $size += ($_.of.^nativesize div 8) * $_.elems();
-            }
+            #await start { nqp::splice(@ref-kinds, @ref-kinds-second, nqp::elems(@ref-kinds), 0); },
+                  #start { nqp::splice(@ref-indexes, @ref-indexes-second, nqp::elems(@ref-indexes), 0); },
+                  #start { nqp::splice(@ref-tos, @ref-tos-second, nqp::elems(@ref-tos), 0); };
+            $updates.emit({ index => $snapshot-task<index>, reference-progress => 0.5 }) if $updates;
+            await start { @ref-kinds.append(@ref-kinds-second); },
+                  start { @ref-indexes.append(@ref-indexes-second); },
+                  start { @ref-tos.append(@ref-tos-second); };
+            $updates.emit({ index => $snapshot-task<index>, reference-progress => 1 }) if $updates;
         }
         hash(:@ref-kinds, :@ref-indexes, :@ref-tos)
     }
+
+    LEAVE $updates.done if $updates;
 
     Snapshot.new(
         |(await $col-data),
