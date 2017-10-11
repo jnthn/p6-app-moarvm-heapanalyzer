@@ -6,6 +6,8 @@ has $.model;
 
 method interactive(IO::Path $file) {
     whine("No such file '$file'") unless $file.e;
+    
+    #my $*SCHEDULER = CurrentThreadScheduler.new();
 
     print "Considering the snapshot...";
     $*OUT.flush;
@@ -34,7 +36,9 @@ method interactive(IO::Path $file) {
         }
     }
     say "Type `help` for available commands, or `exit` to exit.\n";
-    
+
+    my &more = -> $count { say "Please run a suitable command before asking for more output" }
+
     loop {
         sub with-current-snapshot(&code) {
             without $current-snapshot {
@@ -77,6 +81,29 @@ method interactive(IO::Path $file) {
                     SUMMARY
                 }
             }
+            when /^ summary \s+ all $/ {
+                my @headers =    "Snapshot", "Heap Size", "Objects", "Type Objects", "STables", "Frames", "References";
+                my @formatters = Any,         &size,       &mag,      &mag,           &mag,      &mag,      &mag;
+                my @columns = @headers Z=> @formatters;
+                my @rows = Any xx $!model.num-snapshots;
+                my Channel $tokens .= new;
+                $tokens.send(True) xx 3;
+                await do for ^$!model.num-snapshots -> $index {
+                    await $tokens;
+                    $!model.promise-snapshot($index).then({
+                        my $s = $_.result;
+                        @rows[$index] = [$index, $s.total-size, $s.num-objects, $s.num-type-objects, $s.num-stables, $s.num-frames, $s.num-references];
+                        note "forgetting snapshot $index";
+                        $!model.forget-snapshot($index);
+                        CATCH {
+                            .say
+                        }
+                    }).then({ $tokens.send(True) });
+                }
+                say @rows.perl;
+                say @columns.perl;
+                say table @rows, @columns;
+            }
             when /^ top \s+ [(\d+)\s+]?
                     (< objects stables frames >)
                     [\s+ 'by' \s+ (< size count >)]? \s* 
@@ -98,9 +125,12 @@ method interactive(IO::Path $file) {
                 my $n = $0 ?? $0.Int !! 15;
                 my ($what, $cond, $value) = ~$1, ~$2, ~$3;
                 with-current-snapshot -> $s {
-                    say table
-                        $s.find($n, %kind-map{$what}, $cond, $value),
-                        [ 'Object Id' => Any, 'Description' => Any ];
+                    my $result = $s.find($n, %kind-map{$what}, $cond, $value);
+                    say table $result;
+                    &more = -> $count = $n {
+                        $result.fetch-more.($count);
+                        say table $result;
+                    }
                 }
             }
             when /^ count \s+ (< objects stables frames >) \s+
@@ -142,6 +172,9 @@ method interactive(IO::Path $file) {
                     .say for $s.reverse-refs($idx);
                 }
             }
+            when /^ more $/ {
+                &more()
+            }
             when 'help' {
                 say help();
             }
@@ -153,9 +186,7 @@ method interactive(IO::Path $file) {
             }
         }
         CATCH {
-            default {
                 say "Oops: " ~ .message;
-            }
         }
     }
 }
@@ -168,7 +199,24 @@ sub mag($n) {
     $n.Str.flip.comb(3).join(',').flip
 }
 
-sub table(@data, @columns) {
+sub formatter-for-unit($_) {
+    when Count { &mag }
+    when Bytes { &size }
+    default { Any }
+}
+
+sub table($inc-data, @inc-columns?) {
+    my @data;
+    my @columns;
+
+    if $inc-data ~~ App::MoarVM::HeapAnalyzer::Model::Result {
+        @data = $inc-data.values.skip($inc-data.batch-starts-at);
+        @columns = $inc-data.headers Z=> $inc-data.units.map(&formatter-for-unit)
+    } else {
+        @data = @$inc-data;
+        @columns = @inc-columns;
+    }
+
     my @formatters = @columns>>.value;
     my @formatted-data = @data.map(-> @row {
         list @row.pairs.map({
@@ -228,6 +276,8 @@ sub help() {
         show <objectid>
             Shows more information about <objectid> as well as all outgoing
             references.
+        more
+            Displays more results, if possible.
     HELP
 }
 

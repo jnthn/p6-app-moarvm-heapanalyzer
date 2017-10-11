@@ -1,3 +1,5 @@
+use v6.d.PREVIEW;
+
 unit class App::MoarVM::HeapAnalyzer::Model;
 
 use nqp;
@@ -14,6 +16,44 @@ has @!unparsed-snapshots;
 has @!snapshot-promises;
 
 has int $!version;
+
+class Snapshot { ... }
+
+enum Unit is export <Count Bytes CollectableId TypeName FrameName ReprName>;
+
+role Result is export is rw {
+    has Snapshot $.snapshot;
+
+    has Range $.estimated-more = 0..Inf;
+    has &.fetch-more = -> { False };
+    has int $.batch-starts-at = 0;
+}
+
+class ResultTable does Result is export is rw {
+    has Str @.headers;
+    has Unit @.units;
+    has @.values;
+}
+
+class ResultCollectablesDetails is export is rw {
+    has Str @.headers;
+    has Unit @.units;
+    has @.values;
+
+    has @.out-refs;
+    has @.out-targets;
+}
+
+class ResultCollectablesList does Result is export is rw {
+    has Str @.headers;
+    has Unit @.units;
+    has @.values;
+}
+
+class ResultPath does Result is export is rw {
+    has Hash @.collectables;
+    has Hash @.references;
+}
 
 # Holds and provides access to the types data set.
 my class Types {
@@ -109,10 +149,10 @@ my enum RefKind is export << :Unknown(0) Index String >>;
 # Holds data about a snapshot and provides various query operations on it.
 my class Snapshot {
     has int8 @!col-kinds;
-    has int @!col-desc-indexes;
+    has int32 @!col-desc-indexes;
     has int16 @!col-size;
-    has int @!col-unmanaged-size;
-    has int @!col-refs-start;
+    has int32 @!col-unmanaged-size;
+    has int32 @!col-refs-start;
     has int32 @!col-num-refs;
 
     has int @!col-revrefs-start;
@@ -129,8 +169,8 @@ my class Snapshot {
     has $.total-size;
 
     has int8 @!ref-kinds;
-    has int @!ref-indexes;
-    has int @!ref-tos;
+    has int32 @!ref-indexes;
+    has int32 @!ref-tos;
 
     has int @!revrefs-tos;
 
@@ -154,6 +194,29 @@ my class Snapshot {
         @!ref-kinds := @ref-kinds;
         @!ref-indexes := @ref-indexes;
         @!ref-tos := @ref-tos;
+
+        my $size = 0;
+        for @!col-kinds, @!col-desc-indexes, @!col-size,
+            @!col-unmanaged-size, @!col-refs-start, @!col-num-refs,
+            @!strings, @!ref-kinds, @!ref-indexes, @!ref-tos {
+            try $size += (($_.of.^nativesize // 64) div 8) * $_.elems()
+        }
+    }
+
+    method forget() {
+        @!col-kinds := my int8 @;
+        @!col-desc-indexes = my int32 @;
+        @!col-size = my int16 @;
+        @!col-unmanaged-size = my int32 @;
+        @!col-refs-start = my int32 @;
+        @!col-num-refs = my int16 @;
+        @!ref-kinds = my int8 @;
+        @!ref-indexes = my int32 @;
+        @!ref-tos = my int32 @;
+
+        @!bfs-distances = my int @;
+        @!bfs-preds = my int @;
+        @!bfs-pred-refs = my int @;
     }
 
     method num-references() {
@@ -213,20 +276,40 @@ my class Snapshot {
             }
         }
 
-        my @results;
+        my $result-obj =
+                ResultCollectablesList.new(
+                    :snapshot(self),
+                    :headers("Object Id", "Description"),
+                    :units(CollectableId,
+                        $kind == CollectableKind::Frame
+                            ?? FrameName
+                            !! TypeName));
+
+        my int $last-fetched = 0;
         my int $num-cols = @!col-kinds.elems;
-        loop (my int $i = 0; $i < $num-cols; $i++) {
-            if @!col-kinds[$i] == $kind && @matching[@!col-desc-indexes[$i]] {
-                @results.push: [
-                    $i,
-                    $kind == CollectableKind::Frame
-                        ?? $!static-frames.summary(@!col-desc-indexes[$i])
-                        !! $!types.type-name(@!col-desc-indexes[$i])
-                ];
-                last if @results == $n;
+
+        my &fetch-more = -> $count {
+            my @results := $result-obj.values;
+            $result-obj.batch-starts-at = +@results + 1;
+            my int $targetsize = $count + $result-obj.batch-starts-at;
+            loop (my int $i = $last-fetched;
+                    $i < $num-cols && @results < $targetsize;
+                    $i++) {
+                if @!col-kinds[$i] == $kind && @matching[@!col-desc-indexes[$i]] {
+                    @results.push: [
+                        $i,
+                        $kind == CollectableKind::Frame
+                            ?? $!static-frames.summary(@!col-desc-indexes[$i])
+                            !! $!types.type-name(@!col-desc-indexes[$i])
+                    ];
+                }
             }
+            $result-obj.estimated-more = 0 .. ($num-cols - $i);
+            $last-fetched = $i;
         }
-        @results
+        fetch-more($n);
+        $result-obj.fetch-more = &fetch-more;
+        $result-obj;
     }
 
     method describe-col($cur-col) {
@@ -366,6 +449,8 @@ my class Snapshot {
 
     method !ensure-incidents() {
         return if @!revrefs-tos;
+        
+        my num $start = now.Num;
 
         my int $num-coll = +@!col-kinds;
         my int $num-refs = +@!ref-tos;
@@ -375,14 +460,14 @@ my class Snapshot {
 
         @incoming-count[$num-coll - 1] = 0;
 
-        note "going through cols once";
+        note "going through cols once { now - $start }";
         loop (my int $r = 0; $r < $num-refs; $r++) {
             @incoming-count[@!ref-tos[$r]]++;
         }
 
         my int $prefixsum;
 
-        note "going through cols twice";
+        note "going through cols twice { now - $start }";
         loop (my int $c = 0; $c < $num-coll; $c++) {
             my int $count = @incoming-count[$c];
             @!col-revrefs-start[$c] = $prefixsum;
@@ -393,22 +478,23 @@ my class Snapshot {
         my int64 @cursors;
         @cursors[$num-coll - 1] = 0;
 
-        note "going through cols three times";
+        note "going through cols three times { now - $start }";
         loop ($c = 0; $c < $num-coll; $c++) {
             my int $start = @!col-refs-start[$c];
             my int $last-ref = $start + @!col-num-refs[$c];
-            loop (my $r = $start; $r < $last-ref; $r++) {
-                my $to = @!ref-tos[$r];
-                my $targetpos = @!col-revrefs-start[$to] + @cursors[$to];
-                @cursors[$to]++;
-                note "tried to overwrite reverse-to in spot $targetpos" unless @!revrefs-tos[$targetpos] == 0;
-                @!revrefs-tos[$targetpos] = $c;
+            loop (my int $r = $start; $r < $last-ref; $r++) {
+                my int $to = nqp::atpos_i(@!ref-tos, $r);
+                my int $targetpos = nqp::atpos_i(@!col-revrefs-start, $to) + nqp::atpos_i(@cursors, $to);
+                @cursors.AT-POS($to)++;
+                nqp::bindpos_i(@!revrefs-tos, $targetpos, $c);
             }
         }
+        
+        note "done { now - $start }";
     }
 }
 
-class MyLittleBuffer {
+my class MyLittleBuffer {
     has $!buffer = Buf.new();
     has $.fh;
 
@@ -432,6 +518,10 @@ class MyLittleBuffer {
     }
     method tell {
         $!fh.tell - nqp::elems(nqp::decont($!buffer))
+    }
+    method close() {
+        $.fh.close;
+        $!buffer = Buf.new;
     }
 }
 
@@ -584,6 +674,7 @@ sub expect-header($fh, $name, $text = $name.substr(0, 4)) {
 method !parse-strings-ver2($fh) {
     expect-header($fh, "strings", "strs");
     my $stringcount = readSizedInt64($fh.gimme(8));
+    LEAVE { $fh.close }
     do for ^$stringcount {
         my $length = readSizedInt64($fh.gimme(8));
         $length ?? $fh.exactly($length).decode("utf8")
@@ -600,6 +691,7 @@ method !parse-types-ver2($fh) {
         @repr-name-indexes.push(readSizedInt64(@buf));
         @type-name-indexes.push(readSizedInt64(@buf));
     }
+    $fh.close;
     Types.new(:@repr-name-indexes, :@type-name-indexes, strings => await $!strings-promise);
 }
 method !parse-static-frames-ver2($fh) {
@@ -616,6 +708,7 @@ method !parse-static-frames-ver2($fh) {
         @lines       .push(readSizedInt64(@buf));
         @file-indexes.push(readSizedInt64(@buf));
     }
+    $fh.close;
     StaticFrames.new(
         :@name-indexes, :@cuid-indexes, :@lines, :@file-indexes,
         strings => await $!strings-promise
@@ -680,19 +773,33 @@ method prepare-snapshot($index) {
     }
 }
 
+method promise-snapshot($index) {
+    @!snapshot-promises[$index] //= start self!parse-snapshot(
+        @!unparsed-snapshots[$index]
+    )
+}
+
 method get-snapshot($index) {
     await @!snapshot-promises[$index] //= start self!parse-snapshot(
         @!unparsed-snapshots[$index]
     )
 }
 
+method forget-snapshot($index) {
+    my $promise = @!snapshot-promises[$index]:delete;
+    $promise.result.forget;
+    CATCH {
+        .say
+    }
+}
+
 method !parse-snapshot($snapshot-task) {
     my $col-data = start {
         my int8 @col-kinds;
-        my int @col-desc-indexes;
+        my int32 @col-desc-indexes;
         my int16 @col-size;
-        my int @col-unmanaged-size;
-        my int @col-refs-start;
+        my int32 @col-unmanaged-size;
+        my int32 @col-refs-start;
         my int32 @col-num-refs;
         my int $num-objects;
         my int $num-type-objects;
@@ -700,76 +807,121 @@ method !parse-snapshot($snapshot-task) {
         my int $num-frames;
         my int $total-size;
 
-        my @collectable-pieces = do {
-            if $!version == 1 {
+        if $!version == 1 {
+            my Channel $data .= new;
+            my $split-collectables-task = start {
                 $snapshot-task<collectables>.split(";").map({
-                    my uint64 @pieces = .split(",").map(*.Int);
-                })
+                    $data.send(my uint64 @pieces = .split(",").map(*.Int));
+                });
+                $data.close;
             }
-            elsif $!version == 2 {
-                my $fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
-                $fh.seek($snapshot-task[0], SeekFromBeginning);
-                expect-header($fh, "collectables");
-                my ($count, $size-per-collectable) = readSizedInt64($fh.gimme(8)) xx 2;
+            while $data.receive -> @pieces {
+                my int $kind = nqp::shift_i(@pieces);
 
-                my $startpos = $snapshot-task[0] + 4 + 16;
-                my $first-half-count = $count div 2;
+                nqp::push_i(@col-kinds, $kind);
 
-                my $second-fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
-                $second-fh.seek($startpos + $first-half-count * $size-per-collectable, SeekFromBeginning);
-                await start {
-                        do for ^$first-half-count {
-                            my @buf := $fh.gimme(2 + 4 + 2 + 8 + 8 + 4);
-                            my uint64 @result;
-                            nqp::push_i(@result, readSizedInt16(@buf));
-                            nqp::push_i(@result, readSizedInt32(@buf));
-                            nqp::push_i(@result, readSizedInt16(@buf));
-                            nqp::push_i(@result, readSizedInt64(@buf));
-                            nqp::push_i(@result, readSizedInt64(@buf));
-                            nqp::push_i(@result, readSizedInt32(@buf));
-                            @result;
-                        }.Slip
-                    },
-                    start {
-                        do for ^($count - $first-half-count) {
-                            my @buf := $second-fh.gimme(2 + 4 + 2 + 8 + 8 + 4);
-                            my uint64 @result;
-                            nqp::push_i(@result, readSizedInt16(@buf)),
-                            nqp::push_i(@result, readSizedInt32(@buf)),
-                            nqp::push_i(@result, readSizedInt16(@buf)),
-                            nqp::push_i(@result, readSizedInt64(@buf)),
-                            nqp::push_i(@result, readSizedInt64(@buf)),
-                            nqp::push_i(@result, readSizedInt32(@buf));
-                            @result;
-                        }.Slip
+                if    $kind == 1 { $num-objects++ }
+                elsif $kind == 2 { $num-type-objects++ }
+                elsif $kind == 3 { $num-stables++ }
+                elsif $kind == 4 { $num-frames++ }
+
+                nqp::push_i(@col-desc-indexes, nqp::shift_i(@pieces));
+
+                my int $size = nqp::shift_i(@pieces);
+                nqp::push_i(@col-size, $size);
+                my int $unmanaged-size = nqp::shift_i(@pieces);
+                nqp::push_i(@col-unmanaged-size, $unmanaged-size);
+                $total-size += $size + $unmanaged-size;
+
+                nqp::push_i(@col-refs-start, nqp::shift_i(@pieces));
+                nqp::push_i(@col-num-refs, nqp::shift_i(@pieces));
+            }
+        }
+        elsif $!version == 2 {
+            my $fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
+            $fh.seek($snapshot-task[0], SeekFromBeginning);
+            expect-header($fh, "collectables");
+            my ($count, $size-per-collectable) = readSizedInt64($fh.gimme(8)) xx 2;
+
+            my $startpos = $snapshot-task[0] + 4 + 16;
+            my $first-half-count = $count div 2;
+
+            my $second-fh := MyLittleBuffer.new(fh => $snapshot-task.tail.open(:r, :bin, :buffer(4096)));
+            $second-fh.seek($startpos + $first-half-count * $size-per-collectable, SeekFromBeginning);
+
+            my Channel $results .= new;
+            my Channel $empty-frames .= new;
+
+            for ^5 {
+                my uint64 @frame;
+                $empty-frames.send(@frame)
+            }
+
+            my $first-half-done = start {
+                my @result := $empty-frames.receive;
+                for ^$first-half-count {
+                    my @buf := $fh.gimme(2 + 4 + 2 + 8 + 8 + 4);
+                    nqp::push_i(@result, readSizedInt16(@buf));
+                    nqp::push_i(@result, readSizedInt32(@buf));
+                    nqp::push_i(@result, readSizedInt16(@buf));
+                    nqp::push_i(@result, readSizedInt64(@buf));
+                    nqp::push_i(@result, readSizedInt64(@buf));
+                    nqp::push_i(@result, readSizedInt32(@buf));
+                    if @result.elems == 6 * 100 {
+                        $results.send(@result);
+                        @result := $empty-frames.receive;
                     }
+                }
+                CATCH {
+                    .say
+                }
+                $fh.close;
+                True;
+            }
+            start {
+                my uint64 @second-half-results;
+                for ^($count - $first-half-count) {
+                    my @buf := $second-fh.gimme(2 + 4 + 2 + 8 + 8 + 4);
+                    nqp::push_i(@second-half-results, readSizedInt16(@buf)),
+                    nqp::push_i(@second-half-results, readSizedInt32(@buf)),
+                    nqp::push_i(@second-half-results, readSizedInt16(@buf)),
+                    nqp::push_i(@second-half-results, readSizedInt64(@buf)),
+                    nqp::push_i(@second-half-results, readSizedInt64(@buf)),
+                    nqp::push_i(@second-half-results, readSizedInt32(@buf));
+                }
+                await $first-half-done;
+                $results.send(@second-half-results);
+                $results.close;
+                $second-fh.close;
+                True;
+            }
+
+            for $results.List -> @pieces {
+                while @pieces.elems {
+                    my int $kind = nqp::shift_i(@pieces);
+
+                    nqp::push_i(@col-kinds, $kind);
+
+                    if    $kind == 1 { $num-objects++ }
+                    elsif $kind == 2 { $num-type-objects++ }
+                    elsif $kind == 3 { $num-stables++ }
+                    elsif $kind == 4 { $num-frames++ }
+
+                    nqp::push_i(@col-desc-indexes, nqp::shift_i(@pieces));
+
+                    my int $size = nqp::shift_i(@pieces);
+                    nqp::push_i(@col-size, $size);
+                    my int $unmanaged-size = nqp::shift_i(@pieces);
+                    nqp::push_i(@col-unmanaged-size, $unmanaged-size);
+                    $total-size += $size + $unmanaged-size;
+
+                    nqp::push_i(@col-refs-start, nqp::shift_i(@pieces));
+                    nqp::push_i(@col-num-refs, nqp::shift_i(@pieces));
+                }
+                $empty-frames.send(@pieces);
             }
         }
 
-        for @collectable-pieces -> @pieces {
-            my int $kind = nqp::shift_i(@pieces);
-
-            nqp::push_i(@col-kinds, $kind);
-
-            if    $kind == 1 { $num-objects++ }
-            elsif $kind == 2 { $num-type-objects++ }
-            elsif $kind == 3 { $num-stables++ }
-            elsif $kind == 4 { $num-frames++ }
-
-            nqp::push_i(@col-desc-indexes, nqp::shift_i(@pieces));
-
-            my int $size = nqp::shift_i(@pieces);
-            nqp::push_i(@col-size, $size);
-            my int $unmanaged-size = nqp::shift_i(@pieces);
-            nqp::push_i(@col-unmanaged-size, $unmanaged-size);
-            $total-size += $size + $unmanaged-size;
-
-            nqp::push_i(@col-refs-start, nqp::shift_i(@pieces));
-            nqp::push_i(@col-num-refs, nqp::shift_i(@pieces));
-        }
-        CATCH {
-            .say
-        }
         hash(
             :@col-kinds, :@col-desc-indexes, :@col-size, :@col-unmanaged-size,
             :@col-refs-start, :@col-num-refs, :$num-objects, :$num-type-objects,
@@ -779,8 +931,8 @@ method !parse-snapshot($snapshot-task) {
 
     my $ref-data = start {
         my int8 @ref-kinds;
-        my int @ref-indexes;
-        my int @ref-tos;
+        my int32 @ref-indexes;
+        my int32 @ref-tos;
 
         if $!version == 1 {
             for $snapshot-task<references>.split(";") {
@@ -837,9 +989,10 @@ method !parse-snapshot($snapshot-task) {
             expect-header($fh, "references", "refs");
             my ($count, $size-per-reference) = readSizedInt64($fh.gimme(8)) xx 2;
             $fh.fh.close;
+
             my int8 @ref-kinds-second;
-            my int @ref-indexes-second;
-            my int @ref-tos-second;
+            my int32 @ref-indexes-second;
+            my int32 @ref-tos-second;
             await start {
                     grab_n_refs_starting_at(
                         $count div 2,
@@ -852,12 +1005,17 @@ method !parse-snapshot($snapshot-task) {
                         $snapshot-task[1],
                         @ref-kinds-second, @ref-indexes-second, @ref-tos-second);
                 };
-            await start { @ref-kinds.splice(+@ref-kinds, 0, @ref-kinds-second); },
-                  start { @ref-indexes.splice(+@ref-indexes, 0, @ref-indexes-second); },
-                  start { @ref-tos.splice(+@ref-tos, 0, @ref-tos-second); };
-        }
-        CATCH {
-            .say
+            my $size = 0;
+            for @ref-kinds-second, @ref-indexes-second, @ref-tos-second {
+                try $size += ($_.of.^nativesize div 8) * $_.elems();
+            }
+            await start { @ref-kinds.append( @ref-kinds-second); },
+                  start { @ref-indexes.append( @ref-indexes-second); },
+                  start { @ref-tos.append( @ref-tos-second); };
+            $size = 0;
+            for @ref-kinds, @ref-indexes, @ref-tos {
+                try $size += ($_.of.^nativesize div 8) * $_.elems();
+            }
         }
         hash(:@ref-kinds, :@ref-indexes, :@ref-tos)
     }
