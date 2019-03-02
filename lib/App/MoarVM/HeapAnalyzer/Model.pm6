@@ -905,6 +905,7 @@ method !parse-snapshot($snapshot-task, :$updates) {
                         $start = now;
                     }
                 }
+                $results.send(@result);
                 CATCH {
                     .say
                 }
