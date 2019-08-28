@@ -1,4 +1,4 @@
-use v6.d.PREVIEW;
+use v6.d;
 
 unit class App::MoarVM::HeapAnalyzer::Model;
 
