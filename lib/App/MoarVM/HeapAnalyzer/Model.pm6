@@ -417,30 +417,78 @@ my class Snapshot {
         my int @pred-ref;
         my int8 @color; # 0 = white, 1 = grey, 2 = black
 
+        my int @delayed-string-refs;
+
+        my Str @strings-to-slow-down = (
+            "Inter-generational Roots",
+            "Strings heap entry",
+            "Boxed integer cache entry",
+        );
+
+        for @strings-to-slow-down {
+            with @!strings.first($_, :k) {
+                say @!strings[$_];
+                @delayed-string-refs.push($_);
+            }
+        }
+
+        say @delayed-string-refs;
+
         @color[0] = 1;
         @distances[0] = 0;
         @pred[0] = -1;
         @pred-ref[0] = -1;
 
         my int @queue;
+        my int @delayed-refs-queue;
         @queue.push(0);
-        while @queue {
-            my int $cur-col = @queue.shift;
-            my int $num-refs = @!col-num-refs[$cur-col];
-            my int $refs-start = @!col-refs-start[$cur-col];
-            loop (my int $i = 0; $i < $num-refs; $i++) {
-                my int $ref-idx = $refs-start + $i;
-                my int $to = @!ref-tos[$ref-idx];
-                if @color[$to] == 0 {
-                    @color[$to] = 1;
-                    @distances[$to] = @distances[$cur-col] + 1;
-                    @pred[$to] = $cur-col;
-                    @pred-ref[$to] = $ref-idx;
-                    @queue.push($to);
+        repeat {
+            while @queue {
+                my $cur-col = @queue.shift;
+                my $num-refs = @!col-num-refs[$cur-col];
+                my $refs-start = @!col-refs-start[$cur-col];
+                my $refs-end = $refs-start + $num-refs;
+                loop (my int $i = $refs-start; $i < $refs-end; $i++) {
+                    my $ref-idx = $i;
+                    my $to = @!ref-tos[$ref-idx];
+                    my $ref-index = @!ref-indexes[$ref-idx];
+                    if @color[$to] == 0 {
+                        if @!ref-kinds[$ref-idx] == 2 && (
+                                   $ref-index == @delayed-string-refs[0]
+                                || $ref-index == @delayed-string-refs[1]
+                                || $ref-index == @delayed-string-refs[2]
+                            ) {
+                            @delayed-refs-queue.push($cur-col);
+                            @delayed-refs-queue.push($ref-idx);
+                            @delayed-refs-queue.push($to);
+                        }
+                        else {
+                            @color[$to] = 1;
+                            @distances[$to] = @distances[$cur-col] + 1;
+                            @pred[$to] = $cur-col;
+                            @pred-ref[$to] = $ref-idx;
+                            @queue.push($to);
+                        }
+                    }
                 }
+                @color[$cur-col] = 2;
             }
-            @color[$cur-col] = 2;
-        }
+            if @delayed-refs-queue {
+                repeat {
+                    my  $cur-col = @delayed-refs-queue.shift;
+                    my  $ref-idx = @delayed-refs-queue.shift;
+                    my  $to =      @delayed-refs-queue.shift;
+
+                    if @color[$to] == 0 {
+                        @color[$to] = 1;
+                        @distances[$to] = @distances[$cur-col] + 1;
+                        @pred[$to] = $cur-col;
+                        @pred-ref[$to] = $ref-idx;
+                        @queue.push($to);
+                    }
+                } until @queue || !@delayed-refs-queue;
+            }
+        } until !@delayed-refs-queue && !@queue;
 
         @!bfs-distances := @distances;
         @!bfs-preds := @pred;
