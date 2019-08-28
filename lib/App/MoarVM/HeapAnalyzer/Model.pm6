@@ -571,8 +571,13 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
 
     try {
         my $fh = $file.open(:r, :enc<latin1>);
-        if $fh.readchars(16) eq "MoarHeapDumpv002" {
-            $!version = 2;
+        given $fh.readchars(16) {
+            when "MoarHeapDumpv002" {
+                $!version = 2;
+            }
+            when "MoarHeapDumpv003" {
+                $!version = 3;
+            }
         }
         LEAVE $fh.close;
         CATCH { .say }
@@ -663,6 +668,30 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
         $!strings-promise       = start self!parse-strings-ver2($stringheap_fd);
         $!types-promise         = start self!parse-types-ver2($types_fd);
         $!static-frames-promise = start self!parse-static-frames-ver2($staticframe_fd);
+    }
+    elsif $!version == 3 {
+        use App::MoarVM::HeapAnalyzer::Parser;
+
+        my App::MoarVM::HeapAnalyzer::Parser $parser .= new($file);
+
+        my %results := $parser.find-outer-toc;
+
+        $!strings-promise = %results<strings-promise>;
+        $!static-frames-promise = %results<static-frames-promise>.then({ given .result {
+            StaticFrames.new(name-indexes => .<sfname>,
+                    cuid-indexes => .<sfcuid>,
+                    lines => .<sfline>,
+                    file-indexes => .<sffile>,
+                    strings => await $!strings-promise);
+        }});
+        $!types-promise = %results<types-promise>.then({ given .result {
+            Types.new(repr-name-indexes => .<reprname>,
+                      type-name-indexes => .<typename>,
+                      strings => await $!strings-promise)
+        }});
+        @!unparsed-snapshots = do for %results<snapshots>.list.pairs {
+            %(:$parser, toc => .value, index => .key)
+        }
     }
 }
 
@@ -956,7 +985,18 @@ method !parse-snapshot($snapshot-task, :$updates) {
             }
             $done = 1;
         }
+        elsif $!version == 3 {
+            await Promise.in(1);
+            $snapshot-task<parser>.fetch-collectable-data(
+                    toc => $snapshot-task<toc>,
+                    index => $snapshot-task<index>,
 
+                    :@col-kinds, :@col-desc-indexes, :@col-size, :@col-unmanaged-size,
+                    :@col-refs-start, :@col-num-refs, :$num-objects, :$num-type-objects,
+                    :$num-stables, :$num-frames, :$total-size
+
+                    );
+        }
 
         $updates.emit({ index => $snapshot-task<index>, collectable-progress => 1 }) if $updates;
 
@@ -1053,6 +1093,14 @@ method !parse-snapshot($snapshot-task, :$updates) {
                   start { @ref-indexes.append(@ref-indexes-second); },
                   start { @ref-tos.append(@ref-tos-second); };
             $updates.emit({ index => $snapshot-task<index>, reference-progress => 1 }) if $updates;
+        }
+        elsif $!version == 3 {
+            $snapshot-task<parser>.fetch-references-data(
+                    toc => $snapshot-task<toc>,
+                    index => $snapshot-task<index>,
+
+                    :@ref-kinds, :@ref-indexes, :@ref-tos
+                    );
         }
         hash(:@ref-kinds, :@ref-indexes, :@ref-tos)
     }
