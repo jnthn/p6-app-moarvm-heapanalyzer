@@ -86,23 +86,18 @@ method interactive(IO::Path $file) {
                 my @formatters = Any,         &size,       &mag,      &mag,           &mag,      &mag,      &mag;
                 my @columns = @headers Z=> @formatters;
                 my @rows = Any xx $!model.num-snapshots;
-                my Channel $tokens .= new;
-                $tokens.send(True) xx 3;
-                await do for ^$!model.num-snapshots -> $index {
-                    await $tokens;
-                    $!model.promise-snapshot($index).then({
-                        my $s = $_.result;
-                        @rows[$index] = [$index, $s.total-size, $s.num-objects, $s.num-type-objects, $s.num-stables, $s.num-frames, $s.num-references];
-                        note "forgetting snapshot $index";
-                        $!model.forget-snapshot($index);
-                        CATCH {
-                            .say
-                        }
-                    }).then({ $tokens.send(True) });
-                }
-                say @rows.perl;
-                say @columns.perl;
-                say table @rows, @columns;
+                (^$!model.num-snapshots).hyper(:1batch, :3degree).map(-> $index {
+                    my $s = await $!model.promise-snapshot($index);
+                    @rows[$index] = [$index, $s.total-size, $s.num-objects, $s.num-type-objects, $s.num-stables, $s.num-frames, $s.num-references];
+                    note "forgetting snapshot $index";
+                    $!model.forget-snapshot($index);
+                    CATCH {
+                        .note
+                    }
+                    $index;
+                }).rotor(5, :partial).map(-> @indices {
+                    say table @rows[@indices], @columns;
+                })
             }
             when /^ top \s+ [(\d+)\s+]?
                     (< objects stables frames >)
