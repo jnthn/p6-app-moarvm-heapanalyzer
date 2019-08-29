@@ -68,6 +68,10 @@ method interactive(IO::Path $file) {
                     say "Snapshot loaded and ready."
                 }
             }
+            when /^ \s* forget \s+ snapshot \s+ (\d+) \s* $/ {
+                say "forgetting snapshot $0";
+                $!model.forget-snapshot($0.Int);
+            }
             when 'summary' {
                 with-current-snapshot -> $s {
                     say qq:to/SUMMARY/;
