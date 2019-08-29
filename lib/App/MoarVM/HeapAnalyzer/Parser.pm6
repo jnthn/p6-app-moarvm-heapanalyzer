@@ -266,18 +266,58 @@ method fetch-collectable-data(
 
     my @interesting = $toc.grep(*.kind eq %kinds-to-arrays.keys.any);
 
+    my Promise $kinds-promise .= new;
+    my Promise $colsize-promise .= new;
+    my Promise $colusize-promise .= new;
+
+    my int64 $stat-total-size;
+    my int64 $stat-total-usize;
+
+    my $kind-stats-done = $kinds-promise.then({
+        my $array = .result;
+        my int $index = 0;
+        my int $target = $array.elems;
+        while $index < $target {
+            my int $val = $array[$index++];
+            if $val    == 1 { $num-objects++ }
+            elsif $val == 2 { $num-type-objects++ }
+            elsif $val == 3 { $num-stables++ }
+            elsif $val == 4 { $num-frames++ }
+        }
+    });
+
+    my $colsize-stats-done = $colsize-promise.then({
+        my $array = .result;
+        $stat-total-size = $array.sum
+    });
+
+    my $colusize-stats-done = $colusize-promise.then({
+        my $array = .result;
+        $stat-total-usize = $array.sum
+    });
+
     await do for @interesting.list.sort(-*.length) {
         note "asking for token for $_.kind()" with $*TOKEN-POOL;
         .receive with $*TOKEN-POOL;
         start {
             my $kindname = $_.kind;
+            my $values := %kinds-to-arrays{.kind};
             self!read-attribute-stream(
-                    .kind, $_, values => %kinds-to-arrays{.kind}
+                    .kind, $_, :$values
                     );
+            if    .kind eq "colkind" { $kinds-promise.keep($values) }
+            elsif .kind eq "colsize" { $colsize-promise.keep($values) }
+            elsif .kind eq "colusize" { $colusize-promise.keep($values) }
             LEAVE .send(True) with $*TOKEN-POOL;
             CATCH { note "$kindname exception: $_" }
         }
     }
+
+    await $kind-stats-done, $colsize-stats-done, $colusize-stats-done;
+
+    $total-size = $stat-total-size + $stat-total-usize;
+
+    Nil
 }
 
 method fetch-references-data(
