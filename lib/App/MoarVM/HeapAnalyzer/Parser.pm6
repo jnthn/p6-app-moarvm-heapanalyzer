@@ -78,7 +78,6 @@ method read-string-heap() {
         #my $extraread = $leftovers.subbuf(0, 32);
         #say "extra data after string heap was read: ", $extraread.decode("utf8-c8");
 
-        say "string heap is already @!stringheap.elems() big ...";
         my $strings-pushed = 0;
         while $result.elems > 0 {
             my $strlen = $result.read-uint32(0);
@@ -87,7 +86,6 @@ method read-string-heap() {
             $result.splice(0, 4 + $strlen);
             $strings-pushed++;
         }
-        say "string heap is now @!stringheap.elems() big, after pushing $strings-pushed ...";
     }
     @!stringheap
 }
