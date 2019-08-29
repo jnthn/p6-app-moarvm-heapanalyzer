@@ -1,15 +1,17 @@
 {
-    "perl"          : "6.*",
-    "name"          : "App::MoarVM::HeapAnalyzer",
-    "version"       : "0.1",
-    "description"   : "MoarVM heap snapshot analysis tool",
-    "author"        : "Jonathan Worthington <jnthn@jnthn.net>",
-    "license"       : "Artistic-2.0",
-    "depends"       : [ ],
-    "provides"      : {
-        "App::MoarVM::HeapAnalyzer::Model" : "lib/App/MoarVM/HeapAnalyzer/Model.pm6",
-        "App::MoarVM::HeapAnalyzer::Shell" : "lib/App/MoarVM/HeapAnalyzer/Shell.pm6",
-        "moar-ha"                          : "bin/moar-ha"
+    "license": "Artistic-2.0",
+    "source-url": "git://github.com/jnthn/p6-app-moarvm-heapanalyzer.git",
+    "depends": ["Log::Timeline"],
+    "author": "Jonathan Worthington <jnthn@jnthn.net>",
+    "provides": {
+        "App::MoarVM::HeapAnalyzer::Model": "lib/App/MoarVM/HeapAnalyzer/Model.pm6",
+        "App::MoarVM::HeapAnalyzer::Shell": "lib/App/MoarVM/HeapAnalyzer/Shell.pm6",
+        "App::MoarVM::HeapAnalyzer::Parser": "lib/App/MoarVM/HeapAnalyzer/Parser.pm6",
+        "App::MoarVM::HeapAnalyzer::LogTimelineSchema": "lib/App/MoarVM/HeapAnalyzer/LogTimelineSchema.pm6",
+        "moar-ha": "bin/moar-ha"
     },
-    "source-url"    : "git://github.com/jnthn/p6-app-moarvm-heapanalyzer.git"
+    "name": "App::MoarVM::HeapAnalyzer",
+    "description": "MoarVM heap snapshot analysis tool",
+    "perl": "6.*",
+    "version": "0.1"
 }
