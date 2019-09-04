@@ -2,6 +2,7 @@ use App::MoarVM::HeapAnalyzer::Model;
 
 unit class App::MoarVM::HeapAnalyzer::Shell;
 
+
 has $.model;
 
 method interactive(IO::Path $file) {
@@ -9,15 +10,19 @@ method interactive(IO::Path $file) {
     
     #my $*SCHEDULER = CurrentThreadScheduler.new();
 
+
+    #my $*TOKEN-POOL = Channel.new;
+    #$*TOKEN-POOL.send(True) xx 1;
+
     print "Considering the snapshot...";
     $*OUT.flush;
-    try {
+    #try {
         $!model = App::MoarVM::HeapAnalyzer::Model.new(:$file);
-        CATCH {
-            say "oops!\n";
-            whine(.message);
-        }
-    }
+#        CATCH {
+#            say "oops!\n";
+#            whine(.message);
+#        }
+    #}
     say "looks reasonable!\n";
 
     my $current-snapshot;
@@ -57,7 +62,7 @@ method interactive(IO::Path $file) {
 
         given prompt "> " {
             when Nil {
-                exit 0
+                last
             }
             when /^ \s* snapshot \s+ (\d+) \s* $/ {
                 $current-snapshot = $0.Int;
@@ -85,15 +90,21 @@ method interactive(IO::Path $file) {
                     SUMMARY
                 }
             }
-            when /^ summary \s+ all $/ {
+            when /^ summary \s+ [all | every \s+ (\d+)] $/ {
                 my @headers =    "Snapshot", "Heap Size", "Objects", "Type Objects", "STables", "Frames", "References";
+                my $step = ($0 || 1).Int;
                 my @formatters = Any,         &size,       &mag,      &mag,           &mag,      &mag,      &mag;
                 my @columns = @headers Z=> @formatters;
                 my @rows = Any xx $!model.num-snapshots;
-                (^$!model.num-snapshots).hyper(:1batch, :3degree).map(-> $index {
-                    my $s = await $!model.promise-snapshot($index);
+                my Supplier::Preserving $updates-supplier .= new;
+                start react {
+                    whenever $updates-supplier.Supply {
+                        .perl.say
+                    }
+                }
+                (0, $step ...^ * >= $!model.num-snapshots).hyper(:1batch, :1degree).map(-> $index {
+                    my $s = await $!model.promise-snapshot($index, updates => $updates-supplier);
                     @rows[$index] = [$index, $s.total-size, $s.num-objects, $s.num-type-objects, $s.num-stables, $s.num-frames, $s.num-references];
-                    note "forgetting snapshot $index";
                     $!model.forget-snapshot($index);
                     CATCH {
                         .note

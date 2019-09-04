@@ -2,6 +2,8 @@ use v6.d;
 
 unit class App::MoarVM::HeapAnalyzer::Model;
 
+use Concurrent::Progress;
+
 use nqp;
 
 # We resolve the top-level data structures asynchronously.
@@ -279,11 +281,12 @@ my class Snapshot {
         my $result-obj =
                 ResultCollectablesList.new(
                     :snapshot(self),
-                    :headers("Object Id", "Description"),
+                    :headers("Object Id", "Description", "Unmanaged Size"),
                     :units(CollectableId,
                         $kind == CollectableKind::Frame
                             ?? FrameName
-                            !! TypeName));
+                            !! TypeName,
+                        Bytes));
 
         my int $last-fetched = 0;
         my int $num-cols = @!col-kinds.elems;
@@ -300,7 +303,8 @@ my class Snapshot {
                         $i,
                         $kind == CollectableKind::Frame
                             ?? $!static-frames.summary(@!col-desc-indexes[$i])
-                            !! $!types.type-name(@!col-desc-indexes[$i])
+                            !! $!types.type-name(@!col-desc-indexes[$i]),
+                        @!col-size[$i] + @!col-unmanaged-size[$i]
                     ];
                 }
             }
@@ -432,7 +436,7 @@ my class Snapshot {
             }
         }
 
-        say @delayed-string-refs;
+        #say @delayed-string-refs;
 
         @color[0] = 1;
         @distances[0] = 0;
@@ -573,10 +577,16 @@ my class MyLittleBuffer {
     }
 }
 
+my int8 @empty-buf;
 sub readSizedInt64(@buf) {
     #my $bytesize = 8;
     #my @buf := $fh.gimme(8);
     #die "expected $bytesize bytes, but got { @buf.elems() }" unless @buf.elems >= $bytesize;
+
+    #my int64 $result = @buf.read-int64(0);
+    #my int64 $result = nqp::readint(@buf,0,
+          #BEGIN nqp::bitor_i(nqp::const::BINARY_SIZE_64_BIT,NativeEndian));
+
 
     my int64 $result =
             nqp::add_i nqp::shift_i(@buf),
@@ -586,18 +596,28 @@ sub readSizedInt64(@buf) {
             nqp::add_i nqp::bitshiftl_i(nqp::shift_i(@buf), 32),
             nqp::add_i nqp::bitshiftl_i(nqp::shift_i(@buf), 40),
             nqp::add_i nqp::bitshiftl_i(nqp::shift_i(@buf), 48),
-                       nqp::bitshiftl_i(nqp::shift_i(@buf), 56)
+                       nqp::bitshiftl_i(nqp::shift_i(@buf), 56);
+    #@buf.splice(0, 8);
+    #nqp::splice(@buf, @empty-buf, 0, 8);
+    $result;
 }
 sub readSizedInt32(@buf) {
     #my $bytesize = 4;
     #my @buf := $fh.gimme(4);
     #die "expected $bytesize bytes, but got { @buf.elems() }" unless @buf.elems >= $bytesize;
 
+    #my int64 $result = nqp::readint(@buf,0,
+            #BEGIN nqp::bitor_i(nqp::const::BINARY_SIZE_32_BIT,NativeEndian));
+
     my int64 $result =
             nqp::add_i nqp::shift_i(@buf),
             nqp::add_i nqp::bitshiftl_i(nqp::shift_i(@buf),  8),
             nqp::add_i nqp::bitshiftl_i(nqp::shift_i(@buf), 16),
-                       nqp::bitshiftl_i(nqp::shift_i(@buf), 24)
+                       nqp::bitshiftl_i(nqp::shift_i(@buf), 24);
+
+    #nqp::splice(@buf, @empty-buf, 0, 4);
+    $result;
+
 }
 sub readSizedInt16(@buf) {
     #my $bytesize = 2;
@@ -607,6 +627,12 @@ sub readSizedInt16(@buf) {
     my int64 $result =
             nqp::add_i(nqp::shift_i(@buf),
                        nqp::bitshiftl_i(nqp::shift_i(@buf), 8));
+
+    #my int64 $result = nqp::readint(@buf,0,
+            #BEGIN nqp::bitor_i(nqp::const::BINARY_SIZE_16_BIT,NativeEndian));
+    #nqp::splice(@buf, @empty-buf, 0, 2);
+    $result;
+
 }
 
 submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
@@ -738,6 +764,7 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
                       strings => await $!strings-promise)
         }});
         @!unparsed-snapshots = do for %results<snapshots>.list.pairs {
+            #say "unparsed snapshot: $_.key(): $_.value.perl()";
             %(:$parser, toc => .value, index => .key)
         }
     }
@@ -754,6 +781,7 @@ method !parse-strings-ver2($fh) {
     LEAVE { $fh.close }
     do for ^$stringcount {
         my $length = readSizedInt64($fh.gimme(8));
+        if !$length { say "string index $_ is an empty string" }
         $length ?? $fh.exactly($length).decode("utf8")
                 !! ""
     }
@@ -765,8 +793,12 @@ method !parse-types-ver2($fh) {
     my int @type-name-indexes;
     for ^$typecount {
         my @buf := $fh.gimme(16);
-        @repr-name-indexes.push(readSizedInt64(@buf));
-        @type-name-indexes.push(readSizedInt64(@buf));
+        my int64 $repr-name-index = readSizedInt64(@buf);
+        say "type index $_ has an empty repr name" if $repr-name-index == 6;
+        my int64 $type-name-index = readSizedInt64(@buf);
+        say "type index $_ has an empty type name (repr index $repr-name-index)" if $type-name-index == 6;
+        @repr-name-indexes.push($repr-name-index);
+        @type-name-indexes.push($type-name-index);
     }
     $fh.close;
     Types.new(:@repr-name-indexes, :@type-name-indexes, strings => await $!strings-promise);
@@ -845,11 +877,18 @@ method prepare-snapshot($index, :$updates) {
     }
     else {
         with @!unparsed-snapshots[$index] {
+            note "---- ---- ----";
             note "prepare-snapshot called with ...updates? { so $updates }";
+            note $_.perl;
+            note "---- ---- ----";
             @!snapshot-promises[$index] = start self!parse-snapshot($_, :$updates);
+            if $updates {
+                $updates.emit({ index => $index, is-done => False }) if $updates;
+            }
             Preparing
         }
         else {
+            note "error: no such snapshot: $index";
             die "No such snapshot $index"
         }
     }
@@ -870,6 +909,8 @@ method snapshot-state($index) {
 
 method promise-snapshot($index, :$updates) {
     # XXX index checks
+    die "no snapshot with index $index exists" unless @!unparsed-snapshots[$index]:exists;
+
     @!snapshot-promises[$index] //= start self!parse-snapshot(
         @!unparsed-snapshots[$index], :$updates
     )
@@ -882,15 +923,32 @@ method get-snapshot($index, :$updates) {
 
 method forget-snapshot($index) {
     my $promise = @!snapshot-promises[$index]:delete;
-    $promise.result.forget;
+    with $promise {
+        $promise.result.forget;
+    }
+    else {
+        say "not sure why $index had no promise to forget ...";
+    }
     CATCH {
         .say
     }
 }
 
 method !parse-snapshot($snapshot-task, :$updates) {
-    note "parse snapshot with updates? { so $updates }";
-    $updates.emit("hi! i'm the parser!") if $updates;
+    my Concurrent::Progress $progress .= new(:1target, :!auto-done) if $updates;
+
+    LEAVE { note "leave parse-snapshot; increment"; .increment with $progress }
+
+    if $updates {
+        start react whenever $progress {
+            $updates.emit:
+                %( snapshot_index => $snapshot-task<index>,
+                   progress => [ .value, .target, .percent ]
+               );
+           say "progress: $_.value.fmt("%3d") / $_.target.fmt("%3d") - $_.percent()%";
+        }
+    }
+
     my $col-data = start {
         my int8 @col-kinds;
         my int32 @col-desc-indexes;
@@ -903,6 +961,7 @@ method !parse-snapshot($snapshot-task, :$updates) {
         my int $num-stables;
         my int $num-frames;
         my int $total-size;
+
 
         if $!version == 1 {
             my Channel $data .= new;
@@ -1018,7 +1077,8 @@ method !parse-snapshot($snapshot-task, :$updates) {
                     elsif $kind == 3 { $num-stables++ }
                     elsif $kind == 4 { $num-frames++ }
 
-                    nqp::push_i(@col-desc-indexes, nqp::shift_i(@pieces));
+                    my int64 $desc-idx = nqp::shift_i(@pieces);
+                    nqp::push_i(@col-desc-indexes, $desc-idx);
 
                     my int $size = nqp::shift_i(@pieces);
                     nqp::push_i(@col-size, $size);
@@ -1034,7 +1094,7 @@ method !parse-snapshot($snapshot-task, :$updates) {
             $done = 1;
         }
         elsif $!version == 3 {
-            await Promise.in(1);
+            await Promise.in(0.1);
             $snapshot-task<parser>.fetch-collectable-data(
                     toc => $snapshot-task<toc>,
                     index => $snapshot-task<index>,
@@ -1043,6 +1103,7 @@ method !parse-snapshot($snapshot-task, :$updates) {
                     :@col-refs-start, :@col-num-refs, :$num-objects, :$num-type-objects,
                     :$num-stables, :$num-frames, :$total-size
 
+                    :$progress
                     );
         }
 
@@ -1148,12 +1209,24 @@ method !parse-snapshot($snapshot-task, :$updates) {
                     index => $snapshot-task<index>,
 
                     :@ref-kinds, :@ref-indexes, :@ref-tos
+
+                    :$progress
                     );
         }
         hash(:@ref-kinds, :@ref-indexes, :@ref-tos)
     }
 
-    LEAVE $updates.done if $updates;
+    Promise.allof($col-data, $ref-data, $!strings-promise, $!types-promise, $!static-frames-promise).then({ $updates.done });
+
+    with $progress {
+        note "add 5 targets for promises at end of parse-snapshot";
+        .add-target(5);
+        for $!strings-promise, $!types-promise, $!static-frames-promise, $col-data, $ref-data {
+            dd $_, .status, so $_;
+            .then({ note "one of the promises at the end of parse-snapshot; increment"; $progress.increment })
+        }
+
+    }
 
     Snapshot.new(
         |(await $col-data),

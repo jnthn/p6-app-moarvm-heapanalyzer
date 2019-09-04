@@ -250,8 +250,13 @@ method fetch-collectable-data(
         :$num-stables! is rw,
         :$num-frames! is rw,
         :$total-size! is rw,
+
+        :$progress
         ) {
     #note "trying to fetch collectable data for number $index";
+
+    note "fetch collectable data";
+    dd $progress;
 
     my %kinds-to-arrays = %(
             colkind => @col-kinds,
@@ -271,6 +276,8 @@ method fetch-collectable-data(
     my int64 $stat-total-size;
     my int64 $stat-total-usize;
 
+    note "add 1 target for kind-stats-promise";
+    .add-target(1) with $progress;
     my $kind-stats-done = $kinds-promise.then({
         my $array = .result;
         my int $index = 0;
@@ -282,20 +289,28 @@ method fetch-collectable-data(
             elsif $val == 3 { $num-stables++ }
             elsif $val == 4 { $num-frames++ }
         }
+        .increment with $progress;
     });
 
+    note "add 2 targets for colsize stats and colusize stats";
+    .add-target(2) with $progress;
     my $colsize-stats-done = $colsize-promise.then({
         my $array = .result;
-        $stat-total-size = $array.sum
+        $stat-total-size = $array.sum;
+        .increment with $progress;
     });
+
 
     my $colusize-stats-done = $colusize-promise.then({
         my $array = .result;
-        $stat-total-usize = $array.sum
+        $stat-total-usize = $array.sum;
+        .increment with $progress;
     });
 
     await do for @interesting.list.sort(-*.length) {
         #note "asking for token for $_.kind()" with $*TOKEN-POOL;
+        note "increment target for $_.kind()";
+        .increment-target with $progress;
         .receive with $*TOKEN-POOL;
         start {
             my $kindname = $_.kind;
@@ -306,7 +321,7 @@ method fetch-collectable-data(
             if    .kind eq "colkind" { $kinds-promise.keep($values) }
             elsif .kind eq "colsize" { $colsize-promise.keep($values) }
             elsif .kind eq "colusize" { $colusize-promise.keep($values) }
-            LEAVE .send(True) with $*TOKEN-POOL;
+            LEAVE { .send(True) with $*TOKEN-POOL; note "leaving $kindname; increment"; .increment with $progress }
             CATCH { note "$kindname exception: $_" }
         }
     }
@@ -321,15 +336,21 @@ method fetch-collectable-data(
 method fetch-references-data(
         :$toc, :$index,
 
-        :@ref-kinds, :@ref-indexes, :@ref-tos
+        :@ref-kinds, :@ref-indexes, :@ref-tos,
 
+        :$progress
         ) {
     #note "trying to fetch references data for number $index";
+
+    note "fetch references data";
+    dd $progress;
 
     my @interesting = $toc.grep(*.kind eq "refdescr" | "reftrget");
 
     await
         start {
+            note "increment target for refdescr";
+            .increment-target with $progress;
             my $thetoc = @interesting.first(*.kind eq "refdescr");
             #note "asking for token to read reftrget" with $*TOKEN-POOL;
             .receive with $*TOKEN-POOL;
@@ -342,11 +363,13 @@ method fetch-references-data(
                 @ref-indexes.push: $_ +> 2;
             }
             #note "done reading ref descrs";
-            LEAVE .send(True) with $*TOKEN-POOL;
+            LEAVE { .send(True) with $*TOKEN-POOL; note "refdescr finished; increment"; .increment with $progress }
             #LEAVE note "$kindname LEAVE-ing";
             CATCH { note "$kindname exception: $_" }
         },
         start {
+            note "increment target for reftrget";
+            .increment-target with $progress;
             my $thetoc = @interesting.first(*.kind eq "reftrget");
             my $kindname = "reftrget";
 
@@ -355,7 +378,7 @@ method fetch-references-data(
             #note "beginning kind reftrget";
             self!read-attribute-stream("reftrget", $thetoc, values => @ref-tos);
             #note "finished kind reftrget";
-            LEAVE .send(True) with $*TOKEN-POOL;
+            LEAVE { .send(True) with $*TOKEN-POOL; note "reftrgt finished; increment"; .increment with $progress }
             #LEAVE note "$kindname LEAVE-ing";
             CATCH { note "$kindname exception: $_" }
         };

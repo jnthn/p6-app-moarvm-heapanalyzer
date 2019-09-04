@@ -1,0 +1,79 @@
+starting with 1
+increment target for reftrget
+ADD-TARGET 5 /App/MoarVM/HeapAnalyzer/Model.pm6:1223 ✔✔✔✔✔
+progress:   0 /   6 - 0%
+INCREMENT-TARGET /App/MoarVM/HeapAnalyzer/Parser.pm6:353 (refdescr) ✔
+one of the promises at the end of parse-snapshot; increment
+progress:   0 /   7 - 0%
+INCREMENT-TARGET /App/MoarVM/HeapAnalyzer/Parser.pm6:372 (reftrget) ✔
+one of the promises at the end of parse-snapshot; increment
+one of the promises at the end of parse-snapshot; increment
+progress:   1 /   7 - 14%
+INCREMENT /App/MoarVM/HeapAnalyzer/Model.pm6:1226 ✔
+progress:   2 /   7 - 28%
+INCREMENT /App/MoarVM/HeapAnalyzer/Model.pm6:1226 ✔
+progress:   3 /   7 - 42%
+INCREMENT /App/MoarVM/HeapAnalyzer/Model.pm6:1226 ✔
+add 1 target for kind-stats-promise
+progress:   3 /   8 - 37%
+ADD-TARGET 1 /App/MoarVM/HeapAnalyzer/Parser.pm6:280 (kind-stats-promise) ✔
+add 2 targets for colsize stats and colusize stats
+progress:   3 /  10 - 30%
+ADD-TARGET 2 /App/MoarVM/HeapAnalyzer/Parser.pm6:296 (colsize, colusize) ✔
+increment target for colrfstr
+progress:   3 /  11 - 27%
+INCREMENT-TARGET /App/MoarVM/HeapAnalyzer/Parser.pm6:313 (colrfstr) ✔
+increment target for colusize
+progress:   3 /  12 - 25%
+INCREMENT-TARGET /App/MoarVM/HeapAnalyzer/Parser.pm6:313 (colusize) ✔
+increment target for colrfcnt
+progress:   3 /  13 - 23%
+INCREMENT-TARGET /App/MoarVM/HeapAnalyzer/Parser.pm6:313 (colrfcnt) ✔
+increment target for coltofi
+progress:   3 /  14 - 21%
+INCREMENT-TARGET /App/MoarVM/HeapAnalyzer/Parser.pm6:313 (coltofi) ✔
+increment target for colsize
+progress:   3 /  15 - 20%
+INCREMENT-TARGET /App/MoarVM/HeapAnalyzer/Parser.pm6:313 (colsize) ✔
+increment target for colkind
+progress:   3 /  16 - 18%
+INCREMENT-TARGET /App/MoarVM/HeapAnalyzer/Parser.pm6:313 (colkind) ✔
+leaving coltofi; increment
+progress:   4 /  16 - 25%
+INCREMENT /App/MoarVM/HeapAnalyzer/Parser.pm6:324 (coltofi) ✔
+leaving colsize; increment
+progress:   5 /  16 - 31%
+INCREMENT /App/MoarVM/HeapAnalyzer/Parser.pm6:324 (colsize) ✔
+leaving colrfcnt; increment
+progress:   6 /  16 - 37%
+INCREMENT /App/MoarVM/HeapAnalyzer/Parser.pm6:324 (colrfcnt) ✔
+leaving colkind; increment
+progress:   7 /  16 - 43%
+INCREMENT /App/MoarVM/HeapAnalyzer/Parser.pm6:324 (colkind) ✔
+leaving colusize; increment
+progress:   8 /  16 - 50%
+INCREMENT /App/MoarVM/HeapAnalyzer/Parser.pm6:324 (colusize) ✔
+progress:   9 /  16 - 56%
+INCREMENT /App/MoarVM/HeapAnalyzer/Parser.pm6:292 (kind-stats-promise) ✔
+progress:  10 /  16 - 62%
+INCREMENT /App/MoarVM/HeapAnalyzer/Parser.pm6:300 (colsize) ✔
+leaving colrfstr; increment
+progress:  11 /  16 - 68%
+INCREMENT /App/MoarVM/HeapAnalyzer/Parser.pm6:324 (colrfstr) ✔
+progress:  12 /  16 - 75%
+INCREMENT /App/MoarVM/HeapAnalyzer/Parser.pm6:307 (colusize) ✔
+one of the promises at the end of parse-snapshot; increment
+progress:  13 /  16 - 81%
+INCREMENT /App/MoarVM/HeapAnalyzer/Model.pm6:1226 ✔
+reftrgt finished; increment
+progress:  14 /  16 - 87%
+INCREMENT /App/MoarVM/HeapAnalyzer/Parser.pm6:381 (for reftrget) ✔
+refdescr finished; increment
+progress:  15 /  16 - 93%
+INCREMENT /App/MoarVM/HeapAnalyzer/Parser.pm6:366 (refdescr) ✔
+one of the promises at the end of parse-snapshot; increment
+progress:  16 /  16 - 100%
+INCREMENT /App/MoarVM/HeapAnalyzer/Model.pm6:1226 ✔
+leave parse-snapshot; increment
+progress:  17 /  16 - 106%
+INCREMENT /App/MoarVM/HeapAnalyzer/Model.pm6:940

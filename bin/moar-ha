@@ -1,5 +1,44 @@
 use App::MoarVM::HeapAnalyzer::Shell;
 
+use nqp;
+my $eventqueue;
+class QueueType is repr<ConcBlockingQueue> {}
+constant $evq = QueueType.new;
+
+class GCEvent is array[int64] is repr<VMArray> is array_type(int64) {
+    method gist {
+        "GCEvent:\n  " ~ (<seqnum starttime vmtime duration is_major promoted promoted_ttl thread gen2roots> Z=> self.list).join("\n  ");
+    }
+}
+
+class SpeshOverviewEvent is array[int64] is repr<VMArray> is array_type(int64) {
+    method gist {
+        "SpeshEvent:\n  " ~ (<seqnum starttime vmtime wait_before thread_id statstime new_frames updated_frames plantime certain_spesh observed_spesh osr_spesh speshtime frames_with_stats totaltime> Z=> self.list).join("\n  ");
+    }
+}
+
+nqp::vmeventsubscribe($evq<>,
+    nqp::hash(
+        #'gcevent', GCEvent,
+        #'speshoverviewevent', SpeshOverviewEvent)
+    )
+    );
+
+$eventqueue = $evq;
+
+start {
+    loop {
+        my $thing = nqp::shift($eventqueue<>);
+        if $thing.list[4] {
+            say "---- ---- ---- ---- ----";
+            say "GC EVENT";
+            $thing.say;
+            say "---- ---- ---- ---- ----";
+        }
+    }
+}
+
+
 sub MAIN(IO(Str) $heap-snapshot-file) {
     App::MoarVM::HeapAnalyzer::Shell.new
         .interactive($heap-snapshot-file)
