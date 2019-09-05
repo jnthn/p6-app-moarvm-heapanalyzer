@@ -877,10 +877,6 @@ method prepare-snapshot($index, :$updates) {
     }
     else {
         with @!unparsed-snapshots[$index] {
-            note "---- ---- ----";
-            note "prepare-snapshot called with ...updates? { so $updates }";
-            note $_.perl;
-            note "---- ---- ----";
             @!snapshot-promises[$index] = start self!parse-snapshot($_, :$updates);
             if $updates {
                 $updates.emit({ index => $index, is-done => False }) if $updates;
@@ -935,9 +931,11 @@ method forget-snapshot($index) {
 }
 
 method !parse-snapshot($snapshot-task, :$updates) {
-    my Concurrent::Progress $progress .= new(:1target, :!auto-done) if $updates;
+    my Concurrent::Progress $progress .= new(:!auto-done) if $updates;
 
-    LEAVE { note "leave parse-snapshot; increment"; .increment with $progress }
+    .increment-target with $progress;
+
+    LEAVE { .increment with $progress }
 
     if $updates {
         start react whenever $progress {
@@ -1216,14 +1214,13 @@ method !parse-snapshot($snapshot-task, :$updates) {
         hash(:@ref-kinds, :@ref-indexes, :@ref-tos)
     }
 
-    Promise.allof($col-data, $ref-data, $!strings-promise, $!types-promise, $!static-frames-promise).then({ $updates.done });
+    LEAVE { .done with $updates };
 
     with $progress {
-        note "add 5 targets for promises at end of parse-snapshot";
         .add-target(5);
         for $!strings-promise, $!types-promise, $!static-frames-promise, $col-data, $ref-data {
             dd $_, .status, so $_;
-            .then({ note "one of the promises at the end of parse-snapshot; increment"; $progress.increment })
+            .then({ .increment with $progress })
         }
 
     }

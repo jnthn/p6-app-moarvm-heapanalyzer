@@ -102,7 +102,6 @@ method read-staticframes() {
     my %results = :sfname, :sfcuid, :sfline, :sffile;
 
     await do for %interesting-kinds.keys -> $kindname {
-        #note "asking for a token for $kindname" with $*TOKEN-POOL;
         .receive with $*TOKEN-POOL;
 
         start {
@@ -119,7 +118,6 @@ method read-staticframes() {
 
             %results{$kindname} := @values;
             LEAVE .send(True) with $*TOKEN-POOL;
-            #LEAVE note "$kindname LEAVE-ing";
             CATCH { note "$kindname exception: $_" }
         }
     }
@@ -139,7 +137,6 @@ method read-types() {
     my %results = :reprname, :typename;
 
     await do for %interesting-kinds.keys -> $kindname {
-        #note "asking for a token for $kindname" with $*TOKEN-POOL;
         .receive with $*TOKEN-POOL;
         start {
             my \if = &.fh-factory.();
@@ -148,10 +145,9 @@ method read-types() {
             my Zstd::OutBuffer $output-buffer .= new;
             for %tocs-per-kind{$kindname}.pairs -> $p {
                 self!read-attribute-stream($kindname, $p.value, if => if, :@values, :$input-buffer, :$output-buffer);
-            };
+            }
             %results{$kindname} := @values;
             LEAVE .send(True) with $*TOKEN-POOL;
-            #LEAVE note "$kindname LEAVE-ing";
             CATCH { note "$kindname exception: $_" }
         }
     }
@@ -253,10 +249,6 @@ method fetch-collectable-data(
 
         :$progress
         ) {
-    #note "trying to fetch collectable data for number $index";
-
-    note "fetch collectable data";
-    dd $progress;
 
     my %kinds-to-arrays = %(
             colkind => @col-kinds,
@@ -276,8 +268,7 @@ method fetch-collectable-data(
     my int64 $stat-total-size;
     my int64 $stat-total-usize;
 
-    note "add 1 target for kind-stats-promise";
-    .add-target(1) with $progress;
+    .increment-target with $progress;
     my $kind-stats-done = $kinds-promise.then({
         my $array = .result;
         my int $index = 0;
@@ -292,7 +283,6 @@ method fetch-collectable-data(
         .increment with $progress;
     });
 
-    note "add 2 targets for colsize stats and colusize stats";
     .add-target(2) with $progress;
     my $colsize-stats-done = $colsize-promise.then({
         my $array = .result;
@@ -308,8 +298,6 @@ method fetch-collectable-data(
     });
 
     await do for @interesting.list.sort(-*.length) {
-        #note "asking for token for $_.kind()" with $*TOKEN-POOL;
-        note "increment target for $_.kind()";
         .increment-target with $progress;
         .receive with $*TOKEN-POOL;
         start {
@@ -321,7 +309,7 @@ method fetch-collectable-data(
             if    .kind eq "colkind" { $kinds-promise.keep($values) }
             elsif .kind eq "colsize" { $colsize-promise.keep($values) }
             elsif .kind eq "colusize" { $colusize-promise.keep($values) }
-            LEAVE { .send(True) with $*TOKEN-POOL; note "leaving $kindname; increment"; .increment with $progress }
+            LEAVE { .send(True) with $*TOKEN-POOL; .increment with $progress }
             CATCH { note "$kindname exception: $_" }
         }
     }
@@ -340,31 +328,21 @@ method fetch-references-data(
 
         :$progress
         ) {
-    #note "trying to fetch references data for number $index";
-
-    note "fetch references data";
-    dd $progress;
 
     my @interesting = $toc.grep(*.kind eq "refdescr" | "reftrget");
 
     await
         start {
-            note "increment target for refdescr";
             .increment-target with $progress;
             my $thetoc = @interesting.first(*.kind eq "refdescr");
-            #note "asking for token to read reftrget" with $*TOKEN-POOL;
             .receive with $*TOKEN-POOL;
             my $kindname = "refdescr";
-            #note "beginning kind refdescr";
             my $data = self!read-attribute-stream("refdescr", $thetoc);
-            #note "reading ref descrs into kinds and indexes";
             for $data.list -> uint64 $_ {
                 @ref-kinds.push: $_ +& 0b11;
                 @ref-indexes.push: $_ +> 2;
             }
-            #note "done reading ref descrs";
-            LEAVE { .send(True) with $*TOKEN-POOL; note "refdescr finished; increment"; .increment with $progress }
-            #LEAVE note "$kindname LEAVE-ing";
+            LEAVE { .send(True) with $*TOKEN-POOL; .increment with $progress }
             CATCH { note "$kindname exception: $_" }
         },
         start {
@@ -373,13 +351,9 @@ method fetch-references-data(
             my $thetoc = @interesting.first(*.kind eq "reftrget");
             my $kindname = "reftrget";
 
-            #note "asking for token to read reftrget" with $*TOKEN-POOL;
             .receive with $*TOKEN-POOL;
-            #note "beginning kind reftrget";
             self!read-attribute-stream("reftrget", $thetoc, values => @ref-tos);
-            #note "finished kind reftrget";
-            LEAVE { .send(True) with $*TOKEN-POOL; note "reftrgt finished; increment"; .increment with $progress }
-            #LEAVE note "$kindname LEAVE-ing";
+            LEAVE { .send(True) with $*TOKEN-POOL; .increment with $progress }
             CATCH { note "$kindname exception: $_" }
         };
 }
@@ -401,17 +375,12 @@ method find-outer-toc {
 
         my @snapshot-tocs = self.read-toc-contents($toc);
 
-        #say "found these snapshots:";
-
         for @snapshot-tocs.head(*-1) {
-            #"----------".say;
-            #.say;
             if.seek(.position);
             die "expected to find a toc here..." unless no-nulls(if.read(8)) eq "toc";
             App::MoarVM::HeapAnalyzer::Log::ParseTOCFound.log();
             my $size = if.read(8);
             my $innertoc = if.read(.end - .position - 16);
-            #.gist.indent(2).say for my @inner-toc-entries = self.read-toc-contents($innertoc);
             my @inner-toc-entries = self.read-toc-contents($innertoc);
 
             @!snapshot-tocs.push(@inner-toc-entries);
