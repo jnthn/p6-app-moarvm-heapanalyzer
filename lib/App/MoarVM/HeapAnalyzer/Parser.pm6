@@ -4,6 +4,7 @@ unit class App::MoarVM::HeapAnalyzer::Parser is export;
 
 use App::MoarVM::HeapAnalyzer::LogTimelineSchema;
 use Compress::Zstd;
+use JSON::Fast;
 
 class TocEntry {
     has Str $.kind;
@@ -27,8 +28,11 @@ class TocEntry {
 
 has &.fh-factory;
 has @!snapshot-tocs;
+has @!snapmeta;
 
 has @!stringheap;
+
+has $.filemeta;
 
 method new($path) {
     self.bless(fh-factory =>
@@ -358,6 +362,19 @@ method fetch-references-data(
         };
 }
 
+method !read-json-data($toc) {
+    my \if = &.fh-factory.();
+    if.seek($toc.position, SeekFromBeginning);
+
+    # kind
+    if.read(8);
+    # size
+    my $size = if.read(8).read-uint64(0);
+    say "size of this meta is $size";
+    my $json = if.read($size).decode("utf8");
+
+    $json.&from-json;
+}
 
 method find-outer-toc {
     my \if = &.fh-factory.();
@@ -369,6 +386,8 @@ method find-outer-toc {
 
     die "expected last 8 bytes of file to lead to a toc. alas..." unless no-nulls(if.read(8)) eq "toc";
 
+    my @snapmetas;
+
     App::MoarVM::HeapAnalyzer::Log::ParseTOCs.log: {
         my $entries-to-read = if.read(8).read-uint64(0);
         my $toc = if.read($entries-to-read * 3 * 8);
@@ -376,12 +395,20 @@ method find-outer-toc {
         my @snapshot-tocs = self.read-toc-contents($toc);
 
         for @snapshot-tocs.head(*-1) {
+            if .kind eq "filemeta" {
+                $!filemeta = self!read-json-data($_);
+                next;
+            }
             if.seek(.position);
-            die "expected to find a toc here..." unless no-nulls(if.read(8)) eq "toc";
+            die "expected to find a toc here..., found $(my $read-name)" unless ($read-name = no-nulls(if.read(8))) eq "toc";
             App::MoarVM::HeapAnalyzer::Log::ParseTOCFound.log();
             my $size = if.read(8);
             my $innertoc = if.read(.end - .position - 16);
             my @inner-toc-entries = self.read-toc-contents($innertoc);
+
+            for @inner-toc-entries.grep(*.kind eq "snapmeta") -> $toc {
+                @snapmetas.push: self!read-json-data($toc);
+            };
 
             @!snapshot-tocs.push(@inner-toc-entries);
         }
@@ -401,6 +428,7 @@ method find-outer-toc {
             :$strings-promise,
             :$static-frames-promise,
             :$types-promise,
+            :@snapmetas,
             snapshots => @!snapshot-tocs,
         );
 
