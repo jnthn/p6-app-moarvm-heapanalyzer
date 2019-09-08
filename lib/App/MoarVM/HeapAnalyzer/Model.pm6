@@ -17,6 +17,8 @@ has @!unparsed-snapshots;
 # Promises that resolve to parsed snapshots.
 has @!snapshot-promises;
 
+has @.summaries;
+
 has int $!version;
 
 class Snapshot { ... }
@@ -766,6 +768,10 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
         @!unparsed-snapshots = do for %results<snapshots>.list.pairs {
             #say "unparsed snapshot: $_.key(): $_.value.perl()";
             %(:$parser, toc => .value, index => .key)
+        }
+
+        with %results<snapmetas> {
+            @!summaries = $_.list;
         }
     }
 }

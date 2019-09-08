@@ -429,6 +429,7 @@ method find-outer-toc {
             :$static-frames-promise,
             :$types-promise,
             :@snapmetas,
+            :$!filemeta,
             snapshots => @!snapshot-tocs,
         );
 
