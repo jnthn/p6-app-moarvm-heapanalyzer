@@ -931,7 +931,7 @@ method forget-snapshot($index) {
 }
 
 method !parse-snapshot($snapshot-task, :$updates) {
-    my Concurrent::Progress $progress .= new(:!auto-done) if $updates;
+    my Concurrent::Progress $progress .= new if $updates;
 
     .increment-target with $progress;
 
@@ -1105,8 +1105,6 @@ method !parse-snapshot($snapshot-task, :$updates) {
                     );
         }
 
-        $updates.emit({ index => $snapshot-task<index>, collectable-progress => 1 }) if $updates;
-
         hash(
             :@col-kinds, :@col-desc-indexes, :@col-size, :@col-unmanaged-size,
             :@col-refs-start, :@col-num-refs, :$num-objects, :$num-type-objects,
@@ -1214,15 +1212,11 @@ method !parse-snapshot($snapshot-task, :$updates) {
         hash(:@ref-kinds, :@ref-indexes, :@ref-tos)
     }
 
-    LEAVE { .done with $updates };
-
     with $progress {
         .add-target(5);
         for $!strings-promise, $!types-promise, $!static-frames-promise, $col-data, $ref-data {
-            dd $_, .status, so $_;
             .then({ .increment with $progress })
         }
-
     }
 
     Snapshot.new(
