@@ -110,7 +110,7 @@ method interactive(IO::Path $file) {
                         .perl.say
                     }
                 }
-                (0, $step ...^ * >= $!model.num-snapshots).hyper(:1batch, :1degree).map(-> $index {
+                (0, $step ...^ * >= $!model.num-snapshots).hyper(:1batch, :2degree).map(-> $index {
                     my $s = await $!model.promise-snapshot($index, updates => $updates-supplier);
                     @rows[$index] = [$index, $s.total-size, $s.num-objects, $s.num-type-objects, $s.num-stables, $s.num-frames, $s.num-references];
                     $!model.forget-snapshot($index);
