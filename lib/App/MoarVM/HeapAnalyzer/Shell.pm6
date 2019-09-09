@@ -44,6 +44,14 @@ method interactive(IO::Path $file) {
 
     my &more = -> $count { say "Please run a suitable command before asking for more output" }
 
+    if $!model.summaries -> $_ {
+        my @headers =    "Snapshot", "GC Seq Num", "Heap Size", "Objects", "Type Objects", "STables", "Frames", "References";
+        my @formatters = Any,        &mag,          &size,       &mag,      &mag,           &mag,      &mag,      &mag;
+        my @columns = @headers Z=> @formatters;
+        my @rows = .map({ flat $++, .<gc_seq_num total_heap_size total_objects total_typeobjects total_stables total_frames total_refs> });
+        say table @rows, @columns;
+    }
+
     loop {
         sub with-current-snapshot(&code) {
             without $current-snapshot {
