@@ -371,7 +371,8 @@ method !read-json-data($toc) {
     # size
     my $size = if.read(8).read-uint64(0);
     say "size of this meta is $size";
-    my $json = if.read($size).decode("utf8");
+    # need to skip a null byte.
+    my $json = if.read($size - 1).decode("utf8");
 
     $json.&from-json;
 }
