@@ -342,9 +342,10 @@ method fetch-references-data(
             .receive with $*TOKEN-POOL;
             my $kindname = "refdescr";
             my $data = self!read-attribute-stream("refdescr", $thetoc);
-            for $data.list -> uint64 $_ {
-                @ref-kinds.push: $_ +& 0b11;
-                @ref-indexes.push: $_ +> 2;
+            while $data {
+                my uint64 $value = $data.shift;
+                @ref-kinds.push: $value +& 0b11;
+                @ref-indexes.push: $value +> 2;
             }
             LEAVE { .send(True) with $*TOKEN-POOL; .increment with $progress }
             CATCH { note "$kindname exception: $_" }
