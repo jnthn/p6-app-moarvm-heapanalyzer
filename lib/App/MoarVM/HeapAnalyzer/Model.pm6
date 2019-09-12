@@ -969,7 +969,7 @@ method forget-snapshot($index) {
 }
 
 method !parse-snapshot($snapshot-task, :$updates) {
-    my Concurrent::Progress $progress .= new if $updates;
+    my Concurrent::Progress $progress .= new(min-interval => 1) if $updates;
 
     .increment-target with $progress;
 
