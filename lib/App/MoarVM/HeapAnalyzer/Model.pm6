@@ -100,6 +100,15 @@ my class Types {
         }
         @found
     }
+
+    method resolve-indices(@indices) {
+        do for @indices -> $idx {
+            {
+                name => @!strings[@!type-name-indexes[$idx]],
+                repr => @!strings[@!repr-name-indexes[$idx]],
+            }
+        }
+    }
 }
 
 # Holds and provides access to the static frames data set.
@@ -139,6 +148,17 @@ my class StaticFrames {
             @found.splice(+@found, 0, @more);
         }
         @found
+    }
+
+    method resolve-indices(@indices) {
+        do for @indices -> $idx {
+            {
+                name => @!strings[@!name-indexes[$idx]],
+                file => @!strings[@!file-indexes[$idx]],
+                line => @!lines[$idx],
+                cuid => @!strings[@!cuid-indexes[$idx]]
+            }
+        }
     }
 }
 
@@ -547,6 +567,14 @@ my class Snapshot {
         note "done { now - $start }";
     }
 }
+
+method resolve-frames(@indices) {
+    (await $!static-frames-promise).resolve-indices(@indices);
+}
+method resolve-types(@indices) {
+    (await $!types-promise).resolve-indices(@indices);
+}
+
 
 my class MyLittleBuffer {
     has $!buffer = Buf.new();
