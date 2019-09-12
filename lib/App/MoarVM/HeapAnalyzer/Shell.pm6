@@ -101,6 +101,7 @@ method interactive(IO::Path $file) {
             when /^ summary \s+ [all | every \s+ (\d+)] $/ {
                 my @headers =    "Snapshot", "Heap Size", "Objects", "Type Objects", "STables", "Frames", "References";
                 my $step = ($0 || 1).Int;
+                if $step < 1 { die "step must be 1 or higher" }
                 my @formatters = Any,         &size,       &mag,      &mag,           &mag,      &mag,      &mag;
                 my @columns = @headers Z=> @formatters;
                 my @rows = Any xx $!model.num-snapshots;
