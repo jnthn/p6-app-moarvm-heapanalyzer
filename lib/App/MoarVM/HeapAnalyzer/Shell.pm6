@@ -105,11 +105,6 @@ method interactive(IO::Path $file) {
                 my @columns = @headers Z=> @formatters;
                 my @rows = Any xx $!model.num-snapshots;
                 my Supplier::Preserving $updates-supplier .= new;
-                start react {
-                    whenever $updates-supplier.Supply {
-                        .perl.say
-                    }
-                }
                 (0, $step ...^ * >= $!model.num-snapshots).hyper(:1batch, :2degree).map(-> $index {
                     my $s = await $!model.promise-snapshot($index, updates => $updates-supplier);
                     @rows[$index] = [$index, $s.total-size, $s.num-objects, $s.num-type-objects, $s.num-stables, $s.num-frames, $s.num-references];
