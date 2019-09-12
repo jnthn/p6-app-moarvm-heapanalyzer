@@ -199,12 +199,12 @@ my class Snapshot {
         @!ref-indexes := @ref-indexes;
         @!ref-tos := @ref-tos;
 
-        my $size = 0;
-        for @!col-kinds, @!col-desc-indexes, @!col-size,
-            @!col-unmanaged-size, @!col-refs-start, @!col-num-refs,
-            @!strings, @!ref-kinds, @!ref-indexes, @!ref-tos {
-            try $size += (($_.of.^nativesize // 64) div 8) * $_.elems()
-        }
+        #my $size = 0;
+        #for @!col-kinds, @!col-desc-indexes, @!col-size,
+            #@!col-unmanaged-size, @!col-refs-start, @!col-num-refs,
+            #@!strings, @!ref-kinds, @!ref-indexes, @!ref-tos {
+            #try $size += (($_.of.^nativesize // 64) div 8) * $_.elems()
+        #}
     }
 
     method forget() {
