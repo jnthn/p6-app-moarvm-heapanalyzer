@@ -18,6 +18,7 @@ has @!unparsed-snapshots;
 has @!snapshot-promises;
 
 has @.summaries;
+has $.highscores;
 
 has int $!version;
 
@@ -779,6 +780,9 @@ submethod BUILD(IO::Path :$file = die "Must construct model with a file") {
         my App::MoarVM::HeapAnalyzer::Parser $parser .= new($file);
 
         my %results := $parser.find-outer-toc;
+
+        say "assigning highscores promise";
+        $!highscores = start { $parser.get-highscores };
 
         $!strings-promise = %results<strings-promise>;
         $!static-frames-promise = %results<static-frames-promise>.then({ given .result {

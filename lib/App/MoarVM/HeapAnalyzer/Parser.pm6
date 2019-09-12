@@ -29,6 +29,7 @@ class TocEntry {
 has &.fh-factory;
 has @!snapshot-tocs;
 has @!snapmeta;
+has @!highscorelists;
 
 has @!stringheap;
 
@@ -239,6 +240,43 @@ method !read-attribute-stream($kindname, $toc, :$values is copy, :$if = &.fh-fac
     }
 }
 
+method get-highscores {
+    my \if = &.fh-factory.();
+
+    my $entry-count = $!filemeta<highscore_structure><entry_count>;
+    my @data-order  = $!filemeta<highscore_structure><data_order><>;
+
+    my @results;
+
+    my $output-buffer = Zstd::OutBuffer.new(size => @data-order.elems * $entry-count * 8 + 1024);
+    my $input-buffer = Zstd::InBuffer.new(size => 2048);
+
+    my int @values;
+
+    for @!highscorelists -> @entries {
+        next unless @entries;
+
+        my %pieces;
+
+        for @entries {
+            @values.splice;
+            my int $suggested-size = $_<toc>.end - $_<toc>.position + 64;
+            if $suggested-size > $input-buffer.size {
+                $input-buffer = Zstd::InBuffer.new(size => $suggested-size);
+            }
+            self!read-attribute-stream($_<toc>.kind, $_<toc>, if => if, :@values, :$input-buffer, :$output-buffer);
+
+            for @data-order -> $fieldname {
+                %pieces{$_<toc>.kind}{$fieldname} = @values.splice(0, $entry-count);
+            }
+        }
+
+        @results[@entries.head.<index>] = %pieces;
+    }
+
+    @results;
+}
+
 method fetch-collectable-data(
         :$toc, :$index,
 
@@ -394,6 +432,8 @@ method find-outer-toc {
 
         my @snapshot-tocs = self.read-toc-contents($toc);
 
+        my $snapshot-index = 0;
+
         for @snapshot-tocs.head(*-1) {
             if .kind eq "filemeta" {
                 $!filemeta = self!read-json-data($_);
@@ -406,11 +446,17 @@ method find-outer-toc {
             my $innertoc = if.read(.end - .position - 16);
             my @inner-toc-entries = self.read-toc-contents($innertoc);
 
-            for @inner-toc-entries.grep(*.kind eq "snapmeta") -> $toc {
-                @snapmetas.push: self!read-json-data($toc);
-            };
+            for @inner-toc-entries -> $toc {
+                if $toc.kind eq "snapmeta" {
+                    @snapmetas.push: self!read-json-data($toc);
+                }
+                elsif $toc.kind eq "topscore" | "topIDs" {
+                    @!highscorelists[$snapshot-index].push: { :$toc, index => $snapshot-index };
+                }
+            }
 
             @!snapshot-tocs.push(@inner-toc-entries);
+            $snapshot-index++;
         }
     }
 
