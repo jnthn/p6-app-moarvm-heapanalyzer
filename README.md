@@ -8,7 +8,7 @@ obtain a heap snapshot file from something running on MoarVM. For example:
 Then run this application on the heap snapshot file it produces (the filename
 will be at the end of the program output).
 
-    panda install App::MoarVM::HeapAnalyzer
+    zef install App::MoarVM::HeapAnalyzer
     moar-ha heap-snapshot-1473849090.9
 
 Type `help` inside the shell to learn about the set of supported commands.
