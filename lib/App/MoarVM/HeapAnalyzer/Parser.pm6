@@ -183,7 +183,7 @@ method !read-attribute-stream($kindname, $toc, :$values is copy, :$if = &.fh-fac
             $result = $decomp.decompress($read);
         }
 
-        my $leftover-length = (my $leftovers = $decomp.get-leftovers()).elems;
+        #my $leftover-length = (my $leftovers = $decomp.get-leftovers()).elems;
         #say "position after $kindname was read: ", (if.tell - $leftover-length).fmt("%x"), " toc end was ", $toc.end.fmt("%x");
         #my $extraread = $leftovers.subbuf(0, 32);
         #say "extra data after $kindname was read: ", $extraread.decode("utf8-c8");
